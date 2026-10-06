@@ -13,7 +13,7 @@ export function detectSlices(data: Float32Array, sampleRate: number, maxSlices =
   const starts = [0]
   let previous = 0
   for (let index = 0; index < energies.length && starts.length < maxSlices; index++) {
-    const time = index * windowSize / sampleRate
+    const time = (index * windowSize) / sampleRate
     if (energies[index] > Math.max(maximum * 0.12, previous * 2.2, 0.008) && time - starts.at(-1)! >= 0.09) {
       starts.push(Math.max(0, time - 0.005))
     }

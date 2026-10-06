@@ -1,74 +1,78 @@
 # La La La La Studio
 
-A client-side polyphonic sampler, 16-step sequencer, and song arranger built with React, TypeScript, Vite, and Web Audio. No backend or audio uploads to a server. `/jam` adds YouTube backing-video embeds and pad takes that can be transferred into the Studio arrangement.
+A local-first browser DAW. Everything runs client-side with Web Audio: drum sampler, pitched sampler, polyphonic synth, step sequencer, piano roll, audio recording, clip arrangement, buses and sends, automation, and WAV / MP3 / stem export. No backend, no uploads. `/jam` adds YouTube backing-video embeds and pad takes that drop straight into the arrangement.
 
 ## Run
 
-Requires Node.js 22.12+ and a modern browser with Web Audio and IndexedDB support. Chromium is the tested browser. Serve on localhost or HTTPS; do not open the app directly through `file://`.
+Requires Node.js 22.12+ and a Chromium-based browser (tested). Serve on localhost or HTTPS; do not open through `file://`.
 
 ```sh
 npm install
-npm run dev
+./dev.sh          # split terminal: FRONTEND (Vite) | BACKEND (typecheck + unit tests, watch mode)
+./dev.sh --no-split   # same, interleaved in one terminal with [frontend] / [backend] prefixes
+npm run dev       # plain Vite only
 ```
 
-Open the URL printed by Vite. The app starts with four locally synthesized sounds and a playable pattern. A click or key press unlocks the browser's audio context.
+`dev.sh` uses tmux when installed (`brew install tmux`), otherwise opens two Terminal windows on macOS. The app is browser-only, so the "backend" pane runs the engine toolchain rather than a server. A click or key press unlocks the audio context.
 
-## Studio Workflow
+## What it does
 
-- Select a track in the sidebar, sequencer, or mixer. Load an audio file through **Load sample**, or drop it onto the sample editor. Loading replaces that track's sample and creates up to 16 onset regions. If fewer regions are found, remaining pads repeat those regions.
-- Play pads with pointer/touch or `1234`, `qwer`, `asdf`, `zxcv`. Selecting a pad opens its trim, gain, pitch, pan, envelope, loop, and choke controls. Drag either waveform marker; use zoom and scroll for long files.
-- Toggle steps by clicking. Right-click or long-press a step to edit velocity and microtiming. Each track has a default sequencer pad; recorded steps can override it. Patterns are one bar of 16 sixteenth notes.
-- **Play** loops the selected pattern. Space toggles playback. **Record** records pad hits into the nearest step while the pattern plays; it does not record a microphone. One note per track per step is retained.
-- Mixer faders, pan, mute, solo, and insert buttons affect live and exported audio. The rack supports track or selected-pad inserts. Filter, tempo-synced delay, generated-impulse reverb, and a five-bit WaveShaper approximation are implemented.
-- Duplicate or create patterns, add sections, choose their pattern and repeat count, and drag sections to reorder. Arrow buttons provide an accessible/mobile reorder alternative. **Play song** plays the finite arrangement.
-- **Export** downloads either the arranged song as stereo 16-bit PCM WAV or project metadata as JSON. Audio is not embedded in JSON. WAV exports include an eight-second effect tail.
-- `Ctrl+Z` / `Ctrl+Shift+Z` (or Command on macOS) undo/redo project commands outside text inputs. Text inputs retain native editing shortcuts. Toolbar buttons always undo/redo project edits.
+**Tracks.** Add as many as you like from the mixer: drum sampler (16 pads, auto-sliced), pitched sampler (one sample played chromatically from a root note), synthesizer (two oscillators, sub, noise, resonant filter, ADSR, unison, glide, presets), audio track (microphone / line-in recording), and bus (group or send return). Rename, recolor, reorder, remove.
+
+**Patterns and step sequencer.** Patterns are 1 to 16 bars at sixteenth resolution in 2/4 through 7/4. Toggle steps, right-click or long-press for velocity and microtiming, record pad hits live. Melodic tracks trigger their root note from the grid.
+
+**Arrangement.** Clips live on lanes along a zoomable bar ruler. Pattern clips loop their pattern for their length, MIDI clips hold notes for a track, audio clips play recordings, automation clips move a parameter. Drag to move, drag the right edge to resize, double-click a lane to drop the current pattern, shift-drag the ruler for a loop region, click the ruler to seek. Snap follows the zoom level.
+
+**Piano roll.** Click to add notes, drag to move, drag the right edge to resize, alt-drag for velocity, double-click to delete. The on-screen keyboard and the computer keyboard (A-L white keys, W-P black keys, Z/X octave) play the selected keys or synth track and record into a MIDI clip at the playhead while recording in song mode. Web MIDI controllers work after clicking **MIDI**.
+
+**Recording.** Select an audio track, **Arm**, press record, then play the song. A count-in of 0 to 2 bars runs first; the recording is trimmed so the clip starts exactly on the downbeat. Monitor toggles live input through the track. Clips can be trimmed, faded, gained, and pitched. Clips are not time-stretched.
+
+**Mixing.** Each channel has a live meter, fader, pan, mute, solo, two insert toggles, sends to every bus, and an output selector (master or a bus). The rack holds any number of effects per track, pad, or master: filter, 3-band EQ, compressor (with sidechain from another track), delay, reverb, chorus, saturation, bitcrush, and limiter. The small **+** beside a knob creates an automation clip for it.
+
+**Transport.** Tempo and swing change live without stopping. Metronome, loop, count-in, and 2/4–7/4 time signatures. The clock runs in an AudioWorklet, so playback continues when the tab is hidden.
+
+**Projects.** Several projects live in IndexedDB; switch from the sidebar. New, duplicate, delete, import (JSON or ZIP bundle), and export. Unused audio is garbage-collected when a project is deleted. Saved projects from the original one-bar version migrate automatically.
+
+**Export.** Render the song to WAV or MP3, export per-track stems as a ZIP of WAVs, export a project bundle (ZIP with project JSON plus every sample and recording) that re-imports anywhere, or export settings-only JSON. The app installs as a PWA and works offline after the first load.
+
+Press **?** for the keyboard shortcut list.
 
 ## YouTube Jam
 
-1. Open **Jam** and paste a YouTube watch, share, Shorts, or live-video URL. Click **Load video**, then use the embedded player's own playback controls. Start timestamps in shared URLs are supported. Video playback requires network access and permission from the video owner to embed it; **Open on YouTube** is available as a fallback.
-2. Set your pad tempo, select a track, and use **Record take**. The first recording creates a blank Jam pattern rather than overwriting the starter pattern. Play pads with the keyboard or pointer. Recording loops over a 16-step bar; subsequent passes overdub that bar, retaining one note per track per step. Use **New take** for another pattern, and edit recorded notes in the sequencer below.
-3. Stop the recording, enter a section name and repeat count, then click **Add to song**. This adds an independent pattern copy and an arrangement section in one undoable command. Further step edits to the Jam source do not change the copied pattern; both still use the project's shared tracks, pads, samples, and effects.
-4. Open Studio to rearrange the section or render it to WAV. The YouTube source reference, last Jam pattern, recorded patterns, and transferred sections are persisted with the project. Internal Studio/Jam navigation does not reload the session.
-
-**YouTube audio is playback-only.** The official embed does not expose decoded audio to Web Audio, so this app cannot sample, capture, mix, or include YouTube audio in WAV exports. Video playback and the pad scheduler are independent, not sample-accurately synchronized; Stop stops the pad engine, not the embedded video. Recorded pad notes and local uploaded samples are included in the arranged song. To use backing audio in an export, load an audio file you have the right to use into a sample track and sequence it. YouTube audio extraction and downloads are not implemented.
+Paste a YouTube watch, share, Shorts, or live URL and **Load video**. Pick a track, **Record take**, and play pads; takes loop over one bar and overdub. **Add to song** copies the take into an independent pattern and appends a clip to the arrangement. YouTube audio is playback-only: it cannot be sampled, mixed, or exported.
 
 ## Architecture
 
 ```text
-src/audio/       Shared context, voice graph, effects, clock, slicing, WAV encoder
-src/components/  PadGrid, WaveformEditor, StepSequencer, Mixer, Transport,
-                 EffectRack, SongTimeline, JamPanel
-src/state/       Project types, Zustand UI/project state, Immer patch commands
-src/db/          IndexedDB project metadata and original audio Blob storage
-src/Studio.tsx   Studio lifecycle, keyboard handling, audio-clock visual updates
-tests/           Real Chromium Web Audio and UI integration tests
+src/audio/     engine (shared live/offline step scheduler), graph (buses, sends, voices, meters,
+               automation), effects, synth, clock (AudioWorklet ticker), recorder (worklet capture),
+               midi, timing (lookahead scheduler with live tempo, seek, loop), slicing, wav
+src/state/     types (schema v1), migrate (v0 -> v1), defaults, arrangement (clip math), automation,
+               actions, store (Zustand + Immer patches), jam
+src/db/        IndexedDB: multiple projects, audio blobs, garbage collection, import
+src/export/    MP3 (lamejs in a worker), ZIP bundles (fflate)
+src/components Timeline, PianoRoll, AudioClipEditor, AutomationEditor, SynthPanel, KeyboardPiano,
+               StepSequencer, PadGrid, WaveformEditor, Mixer, EffectRack, Transport, JamPanel
+tests/         Chromium Web Audio and UI integration tests
 ```
 
-Every trigger creates a new AudioBufferSourceNode. Routing is source -> pad gain/envelope -> pad pan -> pad inserts -> track inserts -> track gain -> track pan -> master gain -> compressor -> analyser -> destination. Choke groups are global across tracks. Attack/release and short choke ramps avoid hard discontinuities. Track effect parameters update in place with smoothed AudioParams.
-
-The scheduler polls every 25 ms and schedules against absolute AudioContext times, with a 150 ms horizon to accommodate up to 50 ms of negative microtiming. Swing delays alternating sixteenths without changing bar length. UI flashes and playheads consume timestamped events using the audio clock. Missed notes after a long main-thread stall are skipped, not burst-played. Live and offline playback share the voice/effect graph.
-
-Project history stores forward/inverse patches, not full snapshots. Continuous edits are coalesced and history is bounded to 100 commands. AudioBuffers/Blobs remain outside React state. Meaningful edits are persisted after 500 ms; IndexedDB transactions save metadata and any new Blobs atomically. Wait for **Saved locally** before closing. Browser storage can be cleared or evicted, so it is not a substitute for backups.
+One `scheduleStep` function drives both live playback and offline rendering so exports match what you hear. Clip positions are in beats; steps are sixteenths. History stores Immer patches, bounded to 100 commands, and edits persist 500 ms after they stop.
 
 ## Tests
 
 ```sh
-npm test
+npm test            # unit: scheduler, migration, arrangement, automation, slicing, WAV, history, Jam
 npm run lint
 npm run build
 npx playwright install chromium
-npm run test:e2e
+npm run test:e2e    # real Chromium audio and UI flows
+npm run check       # lint + format check + unit + build
 ```
 
-Unit tests cover scheduler timestamps/swing/stall handling, onset detection, WAV encoding, command history, YouTube URL validation, and independent Jam-to-song transfer. Browser tests cover live audio levels/playhead, upload/slicing/reload, undo/redo, arrangement/downloads, actual filter attenuation/delay tails, source-node polyphony, trim/pitch/loop/choke behavior, Jam recording/transfer/reload/export, and desktop/mobile canvas/layout checks. The automated YouTube embed test stubs the external player response; it verifies embed construction and persistence, not YouTube service availability. Screenshots are written under `test-results/`.
+## Limits
 
-## Current Limits
-
-- Four sample tracks, 16 pads per track, one-bar patterns, and one recorded note per track per step.
-- Live looped pads are gated to one bar; sequenced looped pads are gated to one step. Stop cancels voices; existing effect tails can decay naturally.
-- Tempo/swing changes stop playback to avoid discontinuous rescheduling. Playback also stops when the page is hidden, since browsers throttle background timers.
-- Upload limit: 100 MB per file. Offline export limit: 10 minutes of arrangement, plus the fixed tail. Very long/high-feedback tails may extend beyond that export tail.
-- No project JSON import or ZIP bundle export in this pass. Old sample Blobs are retained so undo can restore them; storage garbage collection is not implemented.
-- No MIDI, microphone capture, collaboration, sharing, or YouTube audio extraction. YouTube embeds require network access; Google Fonts are optional network assets. Local sample processing and storage stay client-side, with font fallbacks if offline.
-- Chromium is covered by automated tests. Safari/Firefox audio codec and device-specific behavior still need manual testing. A full page reload is advisable after editing engine modules during Vite HMR.
+- Audio clips follow tempo by position only; they are not time-stretched.
+- Sidechain ducking is triggered by the source track's notes rather than by its audio level.
+- Offline export is limited to 10 minutes of arrangement plus a tail.
+- Chromium is tested. Safari and Firefox need manual checks for codec and worklet behavior.
+- No collaboration or cloud sync; storage is the browser's IndexedDB, so keep bundle exports as backups.

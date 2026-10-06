@@ -1,7 +1,7 @@
 {
-  "name": "songforge",
+  "name": "lalalala-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +9,15 @@
     "lint": "oxlint",
     "test": "vitest run src",
     "test:e2e": "playwright test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend": "concurrently -n typecheck,unit -c cyan,magenta \"tsc -b --watch --preserveWatchOutput\" \"vitest --watch src\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
+    "check": "npm run lint && npm run format:check && npm test && npm run build"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "fflate": "^0.8.3",
     "idb": "^8.0.3",
     "immer": "^11.1.18",
     "lucide-react": "^1.43.0",
@@ -25,9 +31,12 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
+    "concurrently": "^10.0.5",
     "oxlint": "^1.79.0",
+    "prettier": "^3.9.9",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.0"
   }
 }

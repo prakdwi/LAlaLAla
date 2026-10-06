@@ -1,24 +1,173 @@
+/**
+ * Project schema. Bump SCHEMA_VERSION and add a step in migrate.ts whenever this changes.
+ *
+ * Time units: clip positions and lengths are in beats (quarter notes). Pattern steps are
+ * sixteenth notes, so a bar holds timeSignature.beats * 4 steps.
+ */
+export const SCHEMA_VERSION = 1
+
+export type EffectType =
+  'filter' | 'delay' | 'reverb' | 'bitcrush' | 'eq' | 'compressor' | 'chorus' | 'saturation' | 'limiter'
+
+export type EffectParams = {
+  // filter
+  cutoff: number
+  q: number
+  mode: 'lowpass' | 'highpass' | 'bandpass'
+  // delay
+  division: number
+  feedback: number
+  // shared
+  mix: number
+  // eq
+  lowGain: number
+  midGain: number
+  midFreq: number
+  highGain: number
+  // compressor / limiter
+  threshold: number
+  ratio: number
+  attack: number
+  release: number
+  knee: number
+  sidechainTrackId: string
+  // chorus
+  rate: number
+  depth: number
+  // saturation
+  drive: number
+}
+
 export type EffectInstance = {
   id: string
-  type: 'filter' | 'delay' | 'reverb' | 'bitcrush'
+  type: EffectType
   enabled: boolean
-  params: { cutoff: number; q: number; mode: 'lowpass' | 'highpass'; division: number; feedback: number; mix: number }
+  params: EffectParams
 }
+
 export type Pad = {
-  id: string; startTime: number; endTime: number; gain: number; pan: number
-  pitchSemitones: number; loop: boolean; chokeGroup: number; attack: number; release: number
+  id: string
+  startTime: number
+  endTime: number
+  gain: number
+  pan: number
+  pitchSemitones: number
+  loop: boolean
+  chokeGroup: number
+  attack: number
+  release: number
   effects: EffectInstance[]
 }
-export type Track = {
-  id: string; name: string; sampleBufferId: string; pads: Pad[]; volume: number
-  pan: number; mute: boolean; solo: boolean; effects: EffectInstance[]; sequencerPadId: string
+
+export type TrackKind = 'drums' | 'keys' | 'synth' | 'audio' | 'bus'
+
+export type SynthParams = {
+  osc1: OscillatorType
+  osc2: OscillatorType
+  osc2Detune: number
+  osc2Level: number
+  subLevel: number
+  noiseLevel: number
+  cutoff: number
+  resonance: number
+  envAmount: number
+  attack: number
+  decay: number
+  sustain: number
+  release: number
+  glide: number
+  unison: number
+  spread: number
 }
+
+export type Send = { busId: string; level: number }
+
+export type Track = {
+  id: string
+  name: string
+  kind: TrackKind
+  color: string
+  /** drums and keys: the sample this track plays. Empty for synth, audio and bus tracks. */
+  sampleBufferId: string
+  pads: Pad[]
+  /** keys: MIDI note the sample is pitched at. */
+  rootNote: number
+  synth?: SynthParams
+  volume: number
+  pan: number
+  mute: boolean
+  solo: boolean
+  effects: EffectInstance[]
+  sequencerPadId: string
+  sends: Send[]
+  /** Route this track into a bus track instead of the master. */
+  outputBusId?: string
+  /** audio: monitor live input while armed. */
+  monitor?: boolean
+  armed?: boolean
+}
+
 export type Step = { active: boolean; velocity: number; microTimingMs: number; padId?: string }
-export type Pattern = { id: string; name: string; trackSteps: { trackId: string; steps: Step[] }[] }
-export type SongSection = { id: string; name: string; patternId: string; repeatCount: number }
+export type Pattern = { id: string; name: string; bars: number; trackSteps: { trackId: string; steps: Step[] }[] }
+
+export type Note = { id: string; pitch: number; start: number; length: number; velocity: number }
+
+export type AutomationTarget =
+  | { kind: 'track'; trackId: string; param: 'volume' | 'pan' }
+  | { kind: 'effect'; trackId: string; effectId: string; param: keyof EffectParams }
+  | { kind: 'master'; param: 'volume' }
+
+export type AutomationPoint = { beat: number; value: number }
+
+type ClipBase = {
+  id: string
+  name: string
+  laneId: string
+  start: number
+  length: number
+  muted: boolean
+  color?: string
+}
+export type PatternClip = ClipBase & { kind: 'pattern'; patternId: string }
+export type MidiClip = ClipBase & { kind: 'midi'; trackId: string; notes: Note[]; loopLength: number }
+export type AudioClip = ClipBase & {
+  kind: 'audio'
+  trackId: string
+  bufferId: string
+  /** seconds into the source buffer where the clip begins */
+  offset: number
+  gain: number
+  fadeIn: number
+  fadeOut: number
+  pitchSemitones: number
+}
+export type AutomationClip = ClipBase & { kind: 'automation'; target: AutomationTarget; points: AutomationPoint[] }
+export type Clip = PatternClip | MidiClip | AudioClip | AutomationClip
+
+export type Lane = { id: string; name: string }
+export type TimeSignature = { beats: number; unit: number }
+export type LoopRegion = { enabled: boolean; start: number; end: number }
+
 export type Project = {
-  id: string; name: string; tracks: Track[]; patterns: Pattern[]; song: SongSection[]
-  bpm: number; swing: number; masterVolume: number
+  schemaVersion: number
+  id: string
+  name: string
+  tracks: Track[]
+  patterns: Pattern[]
+  lanes: Lane[]
+  clips: Clip[]
+  bpm: number
+  swing: number
+  masterVolume: number
+  masterEffects: EffectInstance[]
+  timeSignature: TimeSignature
+  loop: LoopRegion
+  metronome: boolean
+  countInBars: number
   jamSource?: { videoId: string; start: number }
   jamPatternId?: string
+  createdAt: number
+  updatedAt: number
 }
+
+export type ProjectSummary = { id: string; name: string; updatedAt: number; bpm: number; trackCount: number }

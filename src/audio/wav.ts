@@ -1,4 +1,6 @@
-export function encodeWav(buffer: Pick<AudioBuffer, 'numberOfChannels' | 'length' | 'sampleRate' | 'getChannelData'>): Blob {
+export function encodeWav(
+  buffer: Pick<AudioBuffer, 'numberOfChannels' | 'length' | 'sampleRate' | 'getChannelData'>,
+): Blob {
   const channels = buffer.numberOfChannels
   const byteLength = buffer.length * channels * 2
   const bytes = new ArrayBuffer(44 + byteLength)
@@ -6,12 +8,19 @@ export function encodeWav(buffer: Pick<AudioBuffer, 'numberOfChannels' | 'length
   const text = (offset: number, value: string) => {
     for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index))
   }
-  text(0, 'RIFF'); view.setUint32(4, 36 + byteLength, true); text(8, 'WAVE')
-  text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true)
-  view.setUint16(22, channels, true); view.setUint32(24, buffer.sampleRate, true)
+  text(0, 'RIFF')
+  view.setUint32(4, 36 + byteLength, true)
+  text(8, 'WAVE')
+  text(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, channels, true)
+  view.setUint32(24, buffer.sampleRate, true)
   view.setUint32(28, buffer.sampleRate * channels * 2, true)
-  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true)
-  text(36, 'data'); view.setUint32(40, byteLength, true)
+  view.setUint16(32, channels * 2, true)
+  view.setUint16(34, 16, true)
+  text(36, 'data')
+  view.setUint32(40, byteLength, true)
   const data = Array.from({ length: channels }, (_, channel) => buffer.getChannelData(channel))
   for (let frame = 0; frame < buffer.length; frame++) {
     for (let channel = 0; channel < channels; channel++) {
@@ -25,6 +34,8 @@ export function encodeWav(buffer: Pick<AudioBuffer, 'numberOfChannels' | 'length
 export function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
-  link.href = url; link.download = name; link.click()
+  link.href = url
+  link.download = name
+  link.click()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
