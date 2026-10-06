@@ -37,9 +37,22 @@ npm run dev       # plain Vite only
 
 Press **?** for the keyboard shortcut list.
 
-## YouTube Jam
+## Jam room (MPC mode)
 
-Paste a YouTube watch, share, Shorts, or live URL and **Load video**. Pick a track, **Record take**, and play pads; takes loop over one bar and overdub. **Add to song** copies the take into an independent pattern and appends a clip to the arrangement. YouTube audio is playback-only: it cannot be sampled, mixed, or exported.
+The Jam page is a complete MPC-style sampler workflow built around the 4x4 pads, with an optional YouTube backing video.
+
+- **Pads.** Up to four banks (A–D, 64 pads) per kit. Strike low on a pad for full velocity, high for soft; **Full level** forces maximum. Pads show MUTE / REV badges. The computer keys `1234 qwer asdf zxcv` play the current bank; MIDI notes 36–51 do too.
+- **16 levels.** Spread the selected pad across all 16 pads by velocity or by tune (-8 to +7 semitones).
+- **Note repeat.** Choose 1/4, 1/8, 1/16 or 1/32 and hold a pad for tempo-synced rolls, recorded like any other hit.
+- **Recording.** **Record take** starts a looping take (1, 2, 4 or 8 bars) with count-in and metronome options; hits overdub pass after pass. **Quantize** snaps to 1/4, 1/8 or 1/16, or **Off** keeps your timing as microtiming. **Undo last hit**, **Erase** mode (tap a pad to remove its steps), **Clear kit**, **Clear take**. **Tap** sets the tempo.
+- **Pad mute** mode mutes a pad in playback while you keep hitting it live.
+- **Sample.** Record your microphone straight into the kit (or a new kit): it is auto-chopped onto the pads. **Resample** renders the current take to a sample on a new kit for layering and re-chopping.
+- **Chop.** Threshold chopping with a sensitivity slider, equal regions (4–32), or **Slice here** to turn the selected pad's IN point into a new slice. Pads have trim, gain, tune, pan, attack, release, loop, choke group, reverse, mute, a name, and their own effects.
+- **Add to song** copies the take into an independent pattern clip at the end of the arrangement.
+
+### YouTube
+
+Paste a YouTube watch, share, Shorts, or live URL and **Load video**. YouTube audio is playback-only: it cannot be sampled, mixed, or exported.
 
 ## Architecture
 
@@ -47,8 +60,9 @@ Paste a YouTube watch, share, Shorts, or live URL and **Load video**. Pick a tra
 src/audio/     engine (shared live/offline step scheduler), graph (buses, sends, voices, meters,
                automation), effects, synth, clock (AudioWorklet ticker), recorder (worklet capture),
                midi, timing (lookahead scheduler with live tempo, seek, loop), slicing, wav
-src/state/     types (schema v1), migrate (v0 -> v1), defaults, arrangement (clip math), automation,
-               actions, store (Zustand + Immer patches), jam
+src/state/     types (schema v2), migrate (v0 -> v2), defaults, arrangement (clip math), automation,
+               actions, mpc (pad modes, note repeat, sampling, resample), sampling (pad banks,
+               chop assignment), store (Zustand + Immer patches), jam
 src/db/        IndexedDB: multiple projects, audio blobs, garbage collection, import
 src/export/    MP3 (lamejs in a worker), ZIP bundles (fflate)
 src/components Timeline, PianoRoll, AudioClipEditor, AutomationEditor, SynthPanel, KeyboardPiano,

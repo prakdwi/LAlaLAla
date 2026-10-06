@@ -63,7 +63,8 @@ export function scheduleStep(ctx: StepContext, index: number, time: number) {
       return
     }
     const pad = track.pads.find(item => item.id === (step.padId || track.sequencerPadId))
-    if (pad && graph.trigger(track, pad, when, step.velocity, bpm, gate)) events?.push({ time: when, padId: pad.id })
+    if (pad && !pad.mute && graph.trigger(track, pad, when, step.velocity, bpm, gate))
+      events?.push({ time: when, padId: pad.id })
   }
   const playPattern = (patternId: string, localStep: number) => {
     const pattern = project.patterns.find(item => item.id === patternId)
@@ -73,7 +74,10 @@ export function scheduleStep(ctx: StepContext, index: number, time: number) {
       const step = row.steps[localStep]
       const track = project.tracks.find(item => item.id === row.trackId)
       if (!step?.active || !track || track.kind === 'audio' || track.kind === 'bus') continue
-      const when = Math.max(graph.context.currentTime, time + Math.max(-50, Math.min(50, step.microTimingMs)) / 1000)
+      const when = Math.max(
+        graph.context.currentTime,
+        time + Math.max(-50, Math.min(gate * 1000, step.microTimingMs)) / 1000,
+      )
       fire(track, step, when)
     }
   }
@@ -157,6 +161,11 @@ export class StudioEngine {
   mode: 'pattern' | 'song' = 'pattern'
   /** audio time of step 0 for the current run (after count-in) */
   origin = 0
+  /** true while a count-in is running: hits before step 0 are not recorded */
+  get countingIn() {
+    return this.playing && this.countIn > 0 && this.positionBeats() < 0
+  }
+  private countIn = 0
   end = Infinity
   private getProject: () => Project = () => {
     throw new Error('engine not started')
@@ -259,6 +268,7 @@ export class StudioEngine {
     if (songMode && total <= 0) return
     const fromStep = Math.max(0, Math.round((options.fromBeat ?? 0) * 4))
     const countIn = Math.max(0, Math.round(options.countInBars ?? 0)) * perBar
+    this.countIn = countIn
     const loop =
       songMode && project.loop.enabled
         ? { start: Math.round(project.loop.start * 4), end: Math.round(project.loop.end * 4) }

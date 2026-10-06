@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { applyPatches, enablePatches, produceWithPatches, type Draft, type Patch } from 'immer'
 import type { Project, ProjectSummary } from './types'
 import { makeProject } from './defaults'
+import { defaultMpc, type MpcState } from './mpc'
 
 enablePatches()
 type Command = { label: string; forward: Patch[]; backward: Patch[]; key?: string; time: number }
@@ -36,6 +37,7 @@ export type StudioState = {
   quantize: boolean
   keyboardOctave: number
   showShortcuts: boolean
+  mpc: MpcState
   projects: ProjectSummary[]
   inputArmed: boolean
   recordingAudio: boolean
@@ -77,6 +79,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   quantize: true,
   keyboardOctave: 4,
   showShortcuts: false,
+  mpc: defaultMpc(),
   projects: [],
   inputArmed: false,
   recordingAudio: false,

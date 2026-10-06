@@ -4,7 +4,7 @@
  * Time units: clip positions and lengths are in beats (quarter notes). Pattern steps are
  * sixteenth notes, so a bar holds timeSignature.beats * 4 steps.
  */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export type EffectType =
   'filter' | 'delay' | 'reverb' | 'bitcrush' | 'eq' | 'compressor' | 'chorus' | 'saturation' | 'limiter'
@@ -56,6 +56,11 @@ export type Pad = {
   chokeGroup: number
   attack: number
   release: number
+  /** play the region backwards */
+  reverse: boolean
+  /** silenced in sequence playback (live hits still sound) */
+  mute: boolean
+  name?: string
   effects: EffectInstance[]
 }
 

@@ -50,8 +50,8 @@ import {
   stop,
   toggleMetronome,
   toggleRecord,
-  triggerPad,
 } from './state/actions'
+import { hitPad, stopRepeat } from './state/mpc'
 import {
   createProject,
   deleteProject,
@@ -185,7 +185,7 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
         const index = padKeys.indexOf(key)
         if (index >= 0) {
           event.preventDefault()
-          void triggerPad(track, track.pads[index])
+          void hitPad(track, index, 1)
           return
         }
       } else if (track.kind === 'keys' || track.kind === 'synth') {
@@ -211,6 +211,7 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
     }
     const keyup = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
+      if (padKeys.includes(key)) stopRepeat()
       if (!heldKeys.current.has(key)) return
       heldKeys.current.delete(key)
       const current = useStudio.getState()
@@ -696,91 +697,93 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
           ) : (
             <StepSequencer />
           )}
-          <div className="sampler-layout">
-            {track.kind === 'drums' && <PadGrid />}
-            {(track.kind === 'keys' || track.kind === 'synth') && <KeyboardPiano track={track} />}
-            {track.kind === 'audio' && (
-              <section className="pads-section audio-track-panel" aria-label="Audio track">
-                <div className="section-heading">
-                  <h2>
-                    <Mic size={15} />
-                    Audio track
-                  </h2>
-                  <span className="tag">{state.inputArmed ? 'ARMED' : 'IDLE'}</span>
-                </div>
-                <div className="audio-track-body">
-                  <p>
-                    Arm the input, press record, then play. A count-in runs if one is set. Recording stops with the
-                    transport and lands as a clip on this track.
-                  </p>
-                  <div className="inline-actions">
-                    <button
-                      className={`toggle ${state.inputArmed ? 'on armed' : ''}`}
-                      onClick={() => void armInput(!state.inputArmed)}
-                    >
-                      <Mic size={13} />
-                      {state.inputArmed ? 'Disarm input' : 'Arm microphone'}
-                    </button>
-                    {state.inputDevices.length > 1 && (
-                      <select
-                        aria-label="Input device"
-                        value={state.inputDeviceId}
-                        onChange={event => {
-                          useStudio.setState({ inputDeviceId: event.target.value })
-                          if (state.inputArmed) void armInput(true)
-                        }}
-                      >
-                        {state.inputDevices.map(device => (
-                          <option key={device.id} value={device.id}>
-                            {device.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+          {jamMode && (track.kind === 'drums' || track.kind === 'keys') ? null : (
+            <div className="sampler-layout">
+              {track.kind === 'drums' && <PadGrid />}
+              {(track.kind === 'keys' || track.kind === 'synth') && <KeyboardPiano track={track} />}
+              {track.kind === 'audio' && (
+                <section className="pads-section audio-track-panel" aria-label="Audio track">
+                  <div className="section-heading">
+                    <h2>
+                      <Mic size={15} />
+                      Audio track
+                    </h2>
+                    <span className="tag">{state.inputArmed ? 'ARMED' : 'IDLE'}</span>
                   </div>
-                  <small>
-                    Clips on this track:{' '}
-                    {state.project.clips.filter(item => item.kind === 'audio' && item.trackId === track.id).length}
-                  </small>
-                </div>
-              </section>
-            )}
-            {track.kind === 'bus' && (
-              <section className="pads-section audio-track-panel" aria-label="Bus track">
-                <div className="section-heading">
-                  <h2>
-                    <Layers size={15} />
-                    Bus
-                  </h2>
-                  <span className="tag">GROUP / SEND</span>
-                </div>
-                <div className="audio-track-body">
-                  <p>
-                    Other tracks can route their output here or send a copy of their signal. Put shared reverb, delay,
-                    or group compression in this bus's effect rack.
-                  </p>
-                  <small>
-                    Feeding tracks:{' '}
-                    {state.project.tracks
-                      .filter(
-                        item =>
-                          item.outputBusId === track.id ||
-                          item.sends.some(send => send.busId === track.id && send.level > 0),
-                      )
-                      .map(item => item.name)
-                      .join(', ') || 'none yet'}
-                  </small>
-                </div>
-              </section>
-            )}
-            {track.kind === 'synth' ? (
-              <SynthPanel track={track} />
-            ) : track.kind === 'drums' || track.kind === 'keys' ? (
-              <WaveformEditor key={track.sampleBufferId + track.id} />
-            ) : (
-              <EffectRack />
-            )}
-          </div>
+                  <div className="audio-track-body">
+                    <p>
+                      Arm the input, press record, then play. A count-in runs if one is set. Recording stops with the
+                      transport and lands as a clip on this track.
+                    </p>
+                    <div className="inline-actions">
+                      <button
+                        className={`toggle ${state.inputArmed ? 'on armed' : ''}`}
+                        onClick={() => void armInput(!state.inputArmed)}
+                      >
+                        <Mic size={13} />
+                        {state.inputArmed ? 'Disarm input' : 'Arm microphone'}
+                      </button>
+                      {state.inputDevices.length > 1 && (
+                        <select
+                          aria-label="Input device"
+                          value={state.inputDeviceId}
+                          onChange={event => {
+                            useStudio.setState({ inputDeviceId: event.target.value })
+                            if (state.inputArmed) void armInput(true)
+                          }}
+                        >
+                          {state.inputDevices.map(device => (
+                            <option key={device.id} value={device.id}>
+                              {device.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <small>
+                      Clips on this track:{' '}
+                      {state.project.clips.filter(item => item.kind === 'audio' && item.trackId === track.id).length}
+                    </small>
+                  </div>
+                </section>
+              )}
+              {track.kind === 'bus' && (
+                <section className="pads-section audio-track-panel" aria-label="Bus track">
+                  <div className="section-heading">
+                    <h2>
+                      <Layers size={15} />
+                      Bus
+                    </h2>
+                    <span className="tag">GROUP / SEND</span>
+                  </div>
+                  <div className="audio-track-body">
+                    <p>
+                      Other tracks can route their output here or send a copy of their signal. Put shared reverb, delay,
+                      or group compression in this bus's effect rack.
+                    </p>
+                    <small>
+                      Feeding tracks:{' '}
+                      {state.project.tracks
+                        .filter(
+                          item =>
+                            item.outputBusId === track.id ||
+                            item.sends.some(send => send.busId === track.id && send.level > 0),
+                        )
+                        .map(item => item.name)
+                        .join(', ') || 'none yet'}
+                    </small>
+                  </div>
+                </section>
+              )}
+              {track.kind === 'synth' ? (
+                <SynthPanel track={track} />
+              ) : track.kind === 'drums' || track.kind === 'keys' ? (
+                <WaveformEditor key={track.sampleBufferId + track.id} />
+              ) : (
+                <EffectRack />
+              )}
+            </div>
+          )}
           <div className="bottom-layout">
             <div className="arrangement-column">
               {track.kind === 'audio' || track.kind === 'bus' ? <Mixer /> : <EffectRack />}

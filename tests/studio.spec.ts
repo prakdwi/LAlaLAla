@@ -370,6 +370,70 @@ test('YouTube links, Jam recording, independent song transfer, reload and WAV ex
   expect(errors).toEqual([])
 })
 
+test('Jam room MPC modes: banks, 16 levels, quantized recording, note repeat, erase, pad mute, chop, resample', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: 'Jam', exact: true }).click()
+  await expect(page.getByRole('toolbar', { name: 'Pad modes' })).toBeVisible()
+  // banks
+  await page.getByRole('button', { name: 'Add pad bank' }).click()
+  await page.getByRole('button', { name: 'Bank B', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pad 17', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Bank A', exact: true }).click()
+  // 16 levels
+  await page.getByLabel('16 levels mode').selectOption('velocity')
+  await expect(page.getByText('100%', { exact: true })).toBeVisible()
+  await page.getByLabel('16 levels mode').selectOption('off')
+  // quantized recording via keyboard
+  await page.getByLabel('Jam count-in bars').selectOption('0')
+  await page.getByRole('button', { name: 'Record take', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Recording', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.waitForTimeout(150)
+  for (const key of ['1', 'q', 'a']) {
+    await page.keyboard.press(key)
+    await page.waitForTimeout(170)
+  }
+  await expect(page.locator('.jam-take .section-heading')).toContainText(/[3-9] NOTES/)
+  // note repeat roll adds several steps
+  await page.getByLabel('Note repeat rate').selectOption('0.125')
+  const pad = page.getByRole('button', { name: 'Pad 5', exact: true })
+  const box = (await pad.boundingBox())!
+  await page.mouse.move(box.x + 20, box.y + 40)
+  await page.mouse.down()
+  await page.waitForTimeout(600)
+  await page.mouse.up()
+  await page.getByLabel('Note repeat rate').selectOption('0')
+  await expect(page.locator('.jam-take .section-heading')).toContainText(/(1[0-9]|[6-9]) NOTES/)
+  // erase removes that pad's steps
+  await page.getByRole('button', { name: 'Erase' }).click()
+  await page.getByRole('button', { name: 'Pad 5', exact: true }).click()
+  await page.getByRole('button', { name: 'Erase' }).click()
+  await expect(page.locator('.jam-take .section-heading')).toContainText(/[2-5] NOTES/)
+  // pad mute flags the pad
+  await page.getByRole('button', { name: 'Pad mute' }).click()
+  await page.getByRole('button', { name: 'Pad 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Pad mute' }).click()
+  await expect(page.locator('.pad-badge', { hasText: 'MUTE' })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Stop Jam recording' }).click()
+  // chop into equal regions
+  await page.getByLabel('Chop mode').selectOption('equal')
+  await page.getByLabel('Chop region count').selectOption('8')
+  await page.getByRole('button', { name: 'Chop', exact: true }).click()
+  await page.getByRole('button', { name: 'Pad 2', exact: true }).click()
+  expect(Number(await page.getByRole('spinbutton', { name: 'Slice start' }).inputValue())).toBeCloseTo(0.075, 2)
+  await page.getByLabel('Reverse').check()
+  await expect(page.locator('.pad-badge', { hasText: 'REV' }).first()).toBeVisible()
+  // resample the take onto a new kit
+  await page.getByRole('button', { name: 'Resample' }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Resampled', { timeout: 15000 })
+  await expect(page.locator('.track-library button')).toHaveCount(5)
+  // sample from the (fake) microphone
+  await page.getByRole('button', { name: 'Sample', exact: true }).click()
+  await page.waitForTimeout(700)
+  await page.getByRole('button', { name: 'Stop sampling' }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Sampled', { timeout: 8000 })
+})
+
 test('Jam layout fits desktop and mobile and returns to Studio without a reload', async ({ page }) => {
   await page.getByRole('link', { name: 'Jam', exact: true }).click()
   for (const width of [1440, 768, 390]) {

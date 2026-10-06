@@ -1,5 +1,5 @@
 import { engine } from '../audio/engine'
-import { stepTime, stepDuration } from '../audio/timing'
+import { stepDuration } from '../audio/timing'
 import { midi, type MidiMessage } from '../audio/midi'
 import { notify, reportError, useStudio } from './store'
 import { makeEffect, makePattern, makeStep, makeTrack, stepsPerBar, uid } from './defaults'
@@ -28,43 +28,62 @@ export function selectClip(clip: Clip | undefined) {
   useStudio.setState(patch)
 }
 
-/** Nearest sixteenth step to the current pattern position, for live recording. */
-function nearestPatternStep(project: Project, patternSteps: number) {
-  const elapsed = engine.context!.currentTime - engine.origin
-  const barLength = stepTime(patternSteps, project.bpm, 0)
-  const position = ((elapsed % barLength) + barLength) % barLength
-  let nearest = 0
-  let distance = Infinity
-  for (let index = 0; index <= patternSteps; index++) {
-    const delta = Math.abs(stepTime(index, project.bpm, project.swing) - position)
-    if (delta < distance) {
-      distance = delta
-      nearest = index % patternSteps
-    }
+/**
+ * Records a pad hit into the current pattern at `beat` (pattern-relative, fractional). The MPC
+ * quantize grid decides whether it snaps to a grid line or keeps its microtiming.
+ */
+export function recordHit(track: Track, pad: Pad, velocity: number, beat: number) {
+  const state = useStudio.getState()
+  if (state.songMode) return
+  const pattern = state.project.patterns.find(item => item.id === state.patternId)
+  if (!pattern) return
+  const perBar = stepsPerBar(state.project)
+  const totalSteps = pattern.bars * perBar
+  const totalBeats = totalSteps / 4
+  const local = ((beat % totalBeats) + totalBeats) % totalBeats
+  const grid = state.mpc.quantize
+  let step: number
+  let microTimingMs = 0
+  if (grid > 0) {
+    step = Math.round(local / grid) * grid * 4
+  } else {
+    step = Math.round(local * 4)
+    microTimingMs = Math.max(-50, Math.min(50, (local * 4 - step) * stepDuration(state.project.bpm) * 1000))
   }
-  return nearest
+  step = ((Math.round(step) % totalSteps) + totalSteps) % totalSteps
+  state.edit(
+    'Record pad',
+    project => {
+      const target = project.patterns
+        .find(item => item.id === pattern.id)
+        ?.trackSteps.find(row => row.trackId === track.id)?.steps[step]
+      if (target) {
+        target.active = true
+        target.padId = pad.id
+        target.velocity = velocity
+        target.microTimingMs = Math.round(microTimingMs)
+      }
+    },
+    `record-${track.id}-${step}`,
+  )
 }
 
-export async function triggerPad(track: Track, pad: Pad, velocity = 1) {
+/** Beat position of a hit that sounds at audio time `time`, relative to the pattern start. */
+function hitBeat(time: number) {
+  const context = engine.context!
+  return engine.positionBeats() + (time - context.currentTime) * (useStudio.getState().project.bpm / 60)
+}
+
+/**
+ * Play a pad now. `recordAs` lets 16-levels modes sound a tuned copy while recording the real pad.
+ */
+export async function triggerPad(track: Track, pad: Pad, velocity = 1, recordAs: Pad = pad) {
   const state = useStudio.getState()
-  useStudio.setState({ selectedPadId: pad.id })
+  useStudio.setState({ selectedPadId: recordAs.id })
   try {
-    await engine.hit(state.project, track, pad, velocity)
-    if (state.recording && engine.playing && !state.songMode && engine.positionBeats() >= 0) {
-      const pattern = state.project.patterns.find(item => item.id === state.patternId)
-      if (!pattern) return
-      const nearest = nearestPatternStep(state.project, pattern.bars * stepsPerBar(state.project))
-      state.edit('Record pad', project => {
-        const step = project.patterns
-          .find(item => item.id === pattern.id)
-          ?.trackSteps.find(row => row.trackId === track.id)?.steps[nearest]
-        if (step) {
-          step.active = true
-          step.padId = pad.id
-          step.velocity = velocity
-        }
-      })
-    }
+    const time = await engine.hit(state.project, track, pad, velocity)
+    if (state.recording && engine.playing && !state.songMode && !engine.countingIn)
+      recordHit(track, recordAs, velocity, hitBeat(time))
   } catch (error) {
     reportError(error)
   }
@@ -114,20 +133,14 @@ export async function noteOn(track: Track, pitch: number, velocity = 1) {
     await engine.noteOn(state.project, track, pitch, velocity)
     if (!state.recording || !engine.playing) return
     const beat = engine.positionBeats()
-    if (beat < 0) return
+    if (engine.countingIn) return
     if (!state.songMode) {
-      const pattern = state.project.patterns.find(item => item.id === state.patternId)
-      if (!pattern) return
-      const nearest = nearestPatternStep(state.project, pattern.bars * stepsPerBar(state.project))
-      state.edit('Record note', project => {
-        const step = project.patterns
-          .find(item => item.id === pattern.id)
-          ?.trackSteps.find(row => row.trackId === track.id)?.steps[nearest]
-        if (step) {
-          step.active = true
-          step.velocity = velocity
-        }
-      })
+      recordHit(
+        track,
+        track.pads[0] ?? ({ id: track.sequencerPadId } as Pad),
+        velocity,
+        hitBeat(engine.context!.currentTime),
+      )
       return
     }
     const noteId = uid()
@@ -180,8 +193,9 @@ export function handleMidi(message: MidiMessage) {
   if (!track || !state.ready) return
   if (message.type === 'noteon') {
     if (track.kind === 'drums') {
-      const pad = track.pads[(message.pitch - 36 + 16 * 8) % 16]
-      if (pad) void triggerPad(track, pad, message.velocity)
+      void import('./mpc').then(({ hitPad }) =>
+        hitPad(track, (((message.pitch - 36) % 16) + 16) % 16, message.velocity),
+      )
     } else void noteOn(track, message.pitch, message.velocity)
   } else if (message.type === 'noteoff' && track.kind !== 'drums') noteOff(track, message.pitch)
 }

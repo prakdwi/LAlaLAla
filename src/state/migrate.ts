@@ -11,6 +11,7 @@ export function migrateProject(input: unknown): Project {
   const version = typeof project.schemaVersion === 'number' ? project.schemaVersion : 0
   if (version > SCHEMA_VERSION) throw new Error(`This project was saved by a newer version (schema ${version}).`)
   if (version < 1) project = v0ToV1(project)
+  if (version < 2) project = v1ToV2(project)
   return validate(project as unknown as Project)
 }
 
@@ -71,6 +72,19 @@ function v0ToV1(project: Record<string, unknown>) {
   }
 }
 
+/** v2: pads gain reverse and mute flags. */
+function v1ToV2(project: Record<string, unknown>) {
+  const tracks = Array.isArray(project.tracks) ? (project.tracks as Record<string, unknown>[]) : []
+  for (const track of tracks) {
+    if (Array.isArray(track.pads))
+      for (const pad of track.pads as Record<string, unknown>[]) {
+        pad.reverse ??= false
+        pad.mute ??= false
+      }
+  }
+  return { ...project, schemaVersion: 2 }
+}
+
 function validate(project: Project): Project {
   if (!Array.isArray(project.tracks) || !Array.isArray(project.patterns))
     throw new Error('Project is missing tracks or patterns.')
@@ -96,6 +110,10 @@ function validate(project: Project): Project {
     track.sends ??= []
     track.kind ??= 'drums'
     track.rootNote ??= 60
+    for (const pad of track.pads) {
+      pad.reverse ??= false
+      pad.mute ??= false
+    }
     for (const effect of [...track.effects, ...track.pads.flatMap(pad => pad.effects ?? [])]) {
       effect.params = { ...defaultEffectParams(), ...effect.params }
     }

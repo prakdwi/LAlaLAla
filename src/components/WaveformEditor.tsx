@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Scissors, Upload, ZoomIn, ZoomOut } from 'lucide-react'
 import { engine } from '../audio/engine'
 import { detectSlices } from '../audio/slicing'
-import { makePad, uid } from '../state/defaults'
+import { uid } from '../state/defaults'
+import { assignSample } from '../state/sampling'
 import { reportError, useStudio } from '../state/store'
 import type { Pad } from '../state/types'
 import { IconButton, Range } from './Controls'
@@ -98,26 +99,19 @@ export function WaveformEditor() {
     return () => observer.disconnect()
   }, [buffer, pad, track.pads, viewStart, viewLength])
   const slice = (audio: AudioBuffer, bufferId: string) => {
-    const starts = detectSlices(audio.getChannelData(0), audio.sampleRate)
-    const pads = Array.from({ length: 16 }, (_, index) => {
-      const region = index % starts.length
-      return makePad(starts[region], starts[region + 1] ?? audio.duration)
+    const starts = detectSlices(
+      audio.getChannelData(0),
+      audio.sampleRate,
+      Math.max(16, track.pads.length),
+      useStudio.getState().mpc.chopSensitivity,
+    )
+    edit('Load and slice sample', draft => assignSample(draft, track.id, bufferId, audio.duration, starts))
+    useStudio.setState({
+      selectedPadId: useStudio.getState().project.tracks.find(item => item.id === track.id)?.pads[0].id ?? '',
     })
-    edit('Load and slice sample', draft => {
-      const target = draft.tracks.find(item => item.id === track.id)!
-      const oldPads = target.pads.map(item => item.id)
-      target.sampleBufferId = bufferId
-      target.pads = pads
-      target.sequencerPadId = pads[0].id
-      for (const pattern of draft.patterns)
-        for (const step of pattern.trackSteps.find(row => row.trackId === track.id)?.steps ?? []) {
-          if (step.padId) step.padId = pads[Math.max(0, oldPads.indexOf(step.padId))]?.id
-        }
-    })
-    useStudio.setState({ selectedPadId: pads[0].id })
   }
   const upload = async (file?: File) => {
-    if (!file) return
+    if (!file || !useStudio.getState().ready) return
     if (file.size > 100 * 1024 * 1024) {
       reportError('Please use a sample smaller than 100 MB.')
       return
@@ -223,7 +217,7 @@ export function WaveformEditor() {
       <div className="wave-toolbar">
         <span>
           SLICE {String(track.pads.indexOf(pad) + 1).padStart(2, '0')}
-          <b> / 16</b>
+          <b> / {track.pads.length}</b>
         </span>
         <input
           aria-label="Waveform scroll"
@@ -282,6 +276,33 @@ export function WaveformEditor() {
         <label className="check-label">
           <input type="checkbox" checked={pad.loop} onChange={event => updatePad('loop', event.target.checked)} />
           Loop
+        </label>
+        <label className="check-label">
+          <input type="checkbox" checked={pad.reverse} onChange={event => updatePad('reverse', event.target.checked)} />
+          Reverse
+        </label>
+        <label className="check-label">
+          <input type="checkbox" checked={pad.mute} onChange={event => updatePad('mute', event.target.checked)} />
+          Mute pad
+        </label>
+        <label>
+          Name
+          <input
+            aria-label="Pad name"
+            value={pad.name ?? ''}
+            placeholder={`Pad ${track.pads.indexOf(pad) + 1}`}
+            maxLength={12}
+            onChange={event =>
+              edit(
+                'Pad name',
+                draft => {
+                  const target = draft.tracks.find(item => item.id === track.id)?.pads.find(item => item.id === pad.id)
+                  if (target) target.name = event.target.value || undefined
+                },
+                `${pad.id}-name`,
+              )
+            }
+          />
         </label>
       </div>
       <div className="pad-parameters">

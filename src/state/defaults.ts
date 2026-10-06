@@ -58,6 +58,8 @@ export const makePad = (startTime = 0, endTime = 0.6): Pad => ({
   chokeGroup: 0,
   attack: 0.002,
   release: 0.015,
+  reverse: false,
+  mute: false,
   effects: [],
 })
 

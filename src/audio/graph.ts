@@ -28,6 +28,20 @@ type Bus = {
 }
 
 const MASTER = 'master'
+const reversed = new WeakMap<AudioBuffer, AudioBuffer>()
+function reverseBuffer(context: BaseAudioContext, buffer: AudioBuffer) {
+  let result = reversed.get(buffer)
+  if (!result) {
+    result = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate)
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const source = buffer.getChannelData(channel)
+      const target = result.getChannelData(channel)
+      for (let index = 0, last = source.length - 1; index < source.length; index++) target[index] = source[last - index]
+    }
+    reversed.set(buffer, result)
+  }
+  return result
+}
 
 /**
  * The shared live/offline voice graph.
@@ -216,11 +230,14 @@ export class AudioGraph {
     kind: Voice['kind'],
     pitch?: number,
   ): Voice | undefined {
-    const buffer = this.buffers.get(track.sampleBufferId)
+    const original = this.buffers.get(track.sampleBufferId)
     const bus = this.buses.get(track.id)
-    if (!buffer || !bus) return
-    const start = Math.max(0, Math.min(pad.startTime, buffer.duration - 0.001))
-    const end = Math.max(start + 0.001, Math.min(pad.endTime, buffer.duration))
+    if (!original || !bus) return
+    const buffer = pad.reverse ? reverseBuffer(this.context, original) : original
+    const forwardStart = Math.max(0, Math.min(pad.startTime, buffer.duration - 0.001))
+    const forwardEnd = Math.max(forwardStart + 0.001, Math.min(pad.endTime, buffer.duration))
+    const start = pad.reverse ? buffer.duration - forwardEnd : forwardStart
+    const end = pad.reverse ? buffer.duration - forwardStart : forwardEnd
     const when = Math.max(time, this.context.currentTime)
     this.chokeBefore(pad.chokeGroup, when)
     const source = this.context.createBufferSource()
