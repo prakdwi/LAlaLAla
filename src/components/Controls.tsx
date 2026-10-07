@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
+import { useId, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react'
+import { knobHelp } from './knobHelp'
 
 export function IconButton({
   title,
@@ -19,7 +20,10 @@ export function Range({
   step = 0.01,
   onChange,
   format,
+  context,
 }: {
+  /** disambiguates tooltips where a label means different things (e.g. "compressor", "drum", "clip") */
+  context?: string
   label: string
   value: number
   min: number
@@ -28,9 +32,11 @@ export function Range({
   onChange: (value: number) => void
   format?: string
 }) {
+  const tipId = useId()
+  const help = knobHelp(label, context)
   return (
     <label
-      className="range-control"
+      className={`range-control ${help ? 'has-tip' : ''}`}
       style={{ '--dial-angle': `${-135 + ((value - min) / (max - min)) * 270}deg` } as CSSProperties}
     >
       <span className="parameter-dial" aria-hidden="true">
@@ -42,6 +48,7 @@ export function Range({
       </span>
       <input
         aria-label={label}
+        aria-describedby={help ? tipId : undefined}
         type="range"
         min={min}
         max={max}
@@ -49,6 +56,12 @@ export function Range({
         value={value}
         onChange={event => onChange(Number(event.target.value))}
       />
+      {help && (
+        <span className="knob-tip" role="tooltip" id={tipId}>
+          <span className="knob-tip-tech">{help.tech}</span>
+          <span className="knob-tip-plain">({help.plain})</span>
+        </span>
+      )}
     </label>
   )
 }

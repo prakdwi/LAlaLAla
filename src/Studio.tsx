@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  GraduationCap,
+  FlaskConical,
   AudioLines,
   Check,
   ChevronDown,
@@ -29,6 +31,9 @@ import { Transport } from './components/Transport'
 import { EffectRack } from './components/EffectRack'
 import { Timeline } from './components/Timeline'
 import { JamPanel } from './components/JamPanel'
+import { SoundLab } from './components/SoundLab'
+import { Tutorials } from './components/Tutorials'
+import { LibraryPanel } from './components/LibraryPanel'
 import { PianoRoll } from './components/PianoRoll'
 import { AudioClipEditor } from './components/AudioClipEditor'
 import { AutomationEditor } from './components/AutomationEditor'
@@ -80,7 +85,10 @@ const KIND_ICON: Record<TrackKind, typeof AudioLines> = {
   bus: Layers,
 }
 
-function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: string) => void }) {
+function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; navigate: (path: string) => void }) {
+  const jamMode = view === 'jam'
+  const learnMode = view === 'learn'
+  const labMode = view === 'lab' || learnMode
   const state = useStudio()
   const [exporting, setExporting] = useState('')
   const [exportMenu, setExportMenu] = useState(false)
@@ -346,12 +354,12 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
           <span className="brand-mark">
             <AudioLines size={23} />
           </span>
-          La La La La<span className="beta">{jamMode ? 'JAM' : 'STUDIO'}</span>
+          La La La La<span className="beta">{learnMode ? 'LEARN' : labMode ? 'LAB' : jamMode ? 'JAM' : 'STUDIO'}</span>
         </a>
         <nav>
           <a
             href="/"
-            className={!jamMode ? 'active' : ''}
+            className={view === 'studio' ? 'active' : ''}
             onClick={event => {
               event.preventDefault()
               navigate('/')
@@ -370,6 +378,28 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
           >
             <Headphones size={14} />
             Jam
+          </a>
+          <a
+            href="/lab"
+            className={view === 'lab' ? 'active' : ''}
+            onClick={event => {
+              event.preventDefault()
+              navigate('/lab')
+            }}
+          >
+            <FlaskConical size={14} />
+            Sound Lab
+          </a>
+          <a
+            href="/learn"
+            className={learnMode ? 'active' : ''}
+            onClick={event => {
+              event.preventDefault()
+              navigate('/learn')
+            }}
+          >
+            <GraduationCap size={14} />
+            Tutorials
           </a>
         </nav>
         <div className="header-right">
@@ -510,6 +540,7 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
               )
             })}
           </div>
+          <LibraryPanel onOpenLab={() => navigate('/lab')} />
           <div className="library-heading">
             PATTERNS <span>{String(state.project.patterns.length).padStart(2, '0')}</span>
           </div>
@@ -652,154 +683,163 @@ function Studio({ jamMode, navigate }: { jamMode: boolean; navigate: (path: stri
               {state.notice}
             </div>
           )}
+          {view === 'lab' && state.ready && <SoundLab openJam={() => navigate('/jam')} />}
+          {learnMode && state.ready && <Tutorials navigate={navigate} />}
           {jamMode && state.ready && <JamPanel openStudio={() => navigate('/')} />}
-          <Transport />
-          <Timeline />
-          <div className="editor-tabs" role="tablist">
-            {editors
-              .filter(item => item.available)
-              .map(item => (
-                <button
-                  key={item.id}
-                  role="tab"
-                  aria-selected={editor === item.id}
-                  className={editor === item.id ? 'selected' : ''}
-                  onClick={() => useStudio.setState({ editor: item.id })}
-                >
-                  {item.label}
-                </button>
-              ))}
-            {clip?.kind === 'pattern' && <span className="eyebrow">Editing pattern clip "{clip.name}"</span>}
-            {!clip && track.kind !== 'drums' && track.kind !== 'bus' && (
-              <button
-                className="add-clip"
-                onClick={() =>
-                  addClip(
-                    track.kind === 'audio' ? 'pattern' : 'midi',
-                    state.selectedLaneId,
-                    Math.max(0, state.positionBeats),
-                    { trackId: track.id },
-                  )
-                }
-                disabled={track.kind === 'audio'}
-              >
-                <Plus size={13} />
-                {track.kind === 'audio' ? 'Arm input and record to add audio' : `New MIDI clip for ${track.name}`}
-              </button>
-            )}
-          </div>
-          {editor === 'piano' && clip?.kind === 'midi' ? (
-            <PianoRoll clip={clip} />
-          ) : editor === 'audio' && clip?.kind === 'audio' ? (
-            <AudioClipEditor clip={clip} />
-          ) : editor === 'automation' && clip?.kind === 'automation' ? (
-            <AutomationEditor clip={clip} />
-          ) : (
-            <StepSequencer />
-          )}
-          {jamMode && (track.kind === 'drums' || track.kind === 'keys') ? null : (
-            <div className="sampler-layout">
-              {track.kind === 'drums' && <PadGrid />}
-              {(track.kind === 'keys' || track.kind === 'synth') && <KeyboardPiano track={track} />}
-              {track.kind === 'audio' && (
-                <section className="pads-section audio-track-panel" aria-label="Audio track">
-                  <div className="section-heading">
-                    <h2>
-                      <Mic size={15} />
-                      Audio track
-                    </h2>
-                    <span className="tag">{state.inputArmed ? 'ARMED' : 'IDLE'}</span>
-                  </div>
-                  <div className="audio-track-body">
-                    <p>
-                      Arm the input, press record, then play. A count-in runs if one is set. Recording stops with the
-                      transport and lands as a clip on this track.
-                    </p>
-                    <div className="inline-actions">
-                      <button
-                        className={`toggle ${state.inputArmed ? 'on armed' : ''}`}
-                        onClick={() => void armInput(!state.inputArmed)}
-                      >
-                        <Mic size={13} />
-                        {state.inputArmed ? 'Disarm input' : 'Arm microphone'}
-                      </button>
-                      {state.inputDevices.length > 1 && (
-                        <select
-                          aria-label="Input device"
-                          value={state.inputDeviceId}
-                          onChange={event => {
-                            useStudio.setState({ inputDeviceId: event.target.value })
-                            if (state.inputArmed) void armInput(true)
-                          }}
-                        >
-                          {state.inputDevices.map(device => (
-                            <option key={device.id} value={device.id}>
-                              {device.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    <small>
-                      Clips on this track:{' '}
-                      {state.project.clips.filter(item => item.kind === 'audio' && item.trackId === track.id).length}
-                    </small>
-                  </div>
-                </section>
-              )}
-              {track.kind === 'bus' && (
-                <section className="pads-section audio-track-panel" aria-label="Bus track">
-                  <div className="section-heading">
-                    <h2>
-                      <Layers size={15} />
-                      Bus
-                    </h2>
-                    <span className="tag">GROUP / SEND</span>
-                  </div>
-                  <div className="audio-track-body">
-                    <p>
-                      Other tracks can route their output here or send a copy of their signal. Put shared reverb, delay,
-                      or group compression in this bus's effect rack.
-                    </p>
-                    <small>
-                      Feeding tracks:{' '}
-                      {state.project.tracks
-                        .filter(
-                          item =>
-                            item.outputBusId === track.id ||
-                            item.sends.some(send => send.busId === track.id && send.level > 0),
-                        )
-                        .map(item => item.name)
-                        .join(', ') || 'none yet'}
-                    </small>
-                  </div>
-                </section>
-              )}
-              {track.kind === 'synth' ? (
-                <SynthPanel track={track} />
-              ) : track.kind === 'drums' || track.kind === 'keys' ? (
-                <WaveformEditor key={track.sampleBufferId + track.id} />
+          {!labMode && (
+            <>
+              <Transport />
+              <Timeline />
+              <div className="editor-tabs" role="tablist">
+                {editors
+                  .filter(item => item.available)
+                  .map(item => (
+                    <button
+                      key={item.id}
+                      role="tab"
+                      aria-selected={editor === item.id}
+                      className={editor === item.id ? 'selected' : ''}
+                      onClick={() => useStudio.setState({ editor: item.id })}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                {clip?.kind === 'pattern' && <span className="eyebrow">Editing pattern clip "{clip.name}"</span>}
+                {!clip && track.kind !== 'drums' && track.kind !== 'bus' && (
+                  <button
+                    className="add-clip"
+                    onClick={() =>
+                      addClip(
+                        track.kind === 'audio' ? 'pattern' : 'midi',
+                        state.selectedLaneId,
+                        Math.max(0, state.positionBeats),
+                        { trackId: track.id },
+                      )
+                    }
+                    disabled={track.kind === 'audio'}
+                  >
+                    <Plus size={13} />
+                    {track.kind === 'audio' ? 'Arm input and record to add audio' : `New MIDI clip for ${track.name}`}
+                  </button>
+                )}
+              </div>
+              {editor === 'piano' && clip?.kind === 'midi' ? (
+                <PianoRoll clip={clip} />
+              ) : editor === 'audio' && clip?.kind === 'audio' ? (
+                <AudioClipEditor clip={clip} />
+              ) : editor === 'automation' && clip?.kind === 'automation' ? (
+                <AutomationEditor clip={clip} />
               ) : (
-                <EffectRack />
+                <StepSequencer />
               )}
-            </div>
+              {jamMode && (track.kind === 'drums' || track.kind === 'keys') ? null : (
+                <div className="sampler-layout">
+                  {track.kind === 'drums' && <PadGrid />}
+                  {(track.kind === 'keys' || track.kind === 'synth') && <KeyboardPiano track={track} />}
+                  {track.kind === 'audio' && (
+                    <section className="pads-section audio-track-panel" aria-label="Audio track">
+                      <div className="section-heading">
+                        <h2>
+                          <Mic size={15} />
+                          Audio track
+                        </h2>
+                        <span className="tag">{state.inputArmed ? 'ARMED' : 'IDLE'}</span>
+                      </div>
+                      <div className="audio-track-body">
+                        <p>
+                          Arm the input, press record, then play. A count-in runs if one is set. Recording stops with
+                          the transport and lands as a clip on this track.
+                        </p>
+                        <div className="inline-actions">
+                          <button
+                            className={`toggle ${state.inputArmed ? 'on armed' : ''}`}
+                            onClick={() => void armInput(!state.inputArmed)}
+                          >
+                            <Mic size={13} />
+                            {state.inputArmed ? 'Disarm input' : 'Arm microphone'}
+                          </button>
+                          {state.inputDevices.length > 1 && (
+                            <select
+                              aria-label="Input device"
+                              value={state.inputDeviceId}
+                              onChange={event => {
+                                useStudio.setState({ inputDeviceId: event.target.value })
+                                if (state.inputArmed) void armInput(true)
+                              }}
+                            >
+                              {state.inputDevices.map(device => (
+                                <option key={device.id} value={device.id}>
+                                  {device.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        <small>
+                          Clips on this track:{' '}
+                          {
+                            state.project.clips.filter(item => item.kind === 'audio' && item.trackId === track.id)
+                              .length
+                          }
+                        </small>
+                      </div>
+                    </section>
+                  )}
+                  {track.kind === 'bus' && (
+                    <section className="pads-section audio-track-panel" aria-label="Bus track">
+                      <div className="section-heading">
+                        <h2>
+                          <Layers size={15} />
+                          Bus
+                        </h2>
+                        <span className="tag">GROUP / SEND</span>
+                      </div>
+                      <div className="audio-track-body">
+                        <p>
+                          Other tracks can route their output here or send a copy of their signal. Put shared reverb,
+                          delay, or group compression in this bus's effect rack.
+                        </p>
+                        <small>
+                          Feeding tracks:{' '}
+                          {state.project.tracks
+                            .filter(
+                              item =>
+                                item.outputBusId === track.id ||
+                                item.sends.some(send => send.busId === track.id && send.level > 0),
+                            )
+                            .map(item => item.name)
+                            .join(', ') || 'none yet'}
+                        </small>
+                      </div>
+                    </section>
+                  )}
+                  {track.kind === 'synth' ? (
+                    <SynthPanel track={track} />
+                  ) : track.kind === 'drums' || track.kind === 'keys' ? (
+                    <WaveformEditor key={track.sampleBufferId + track.id} />
+                  ) : (
+                    <EffectRack />
+                  )}
+                </div>
+              )}
+              <div className="bottom-layout">
+                <div className="arrangement-column">
+                  {track.kind === 'audio' || track.kind === 'bus' ? <Mixer /> : <EffectRack />}
+                </div>
+                {track.kind !== 'audio' && track.kind !== 'bus' && <Mixer />}
+              </div>
+              <footer className="studio-footer">
+                <span>
+                  <i />
+                  {state.ready ? 'SESSION READY' : 'LOADING SESSION'}
+                </span>
+                <span>
+                  CLIENT-SIDE AUDIO <b>/</b> NO CLOUD
+                </span>
+                <span>LA LA LA LA v0.2</span>
+              </footer>
+            </>
           )}
-          <div className="bottom-layout">
-            <div className="arrangement-column">
-              {track.kind === 'audio' || track.kind === 'bus' ? <Mixer /> : <EffectRack />}
-            </div>
-            {track.kind !== 'audio' && track.kind !== 'bus' && <Mixer />}
-          </div>
-          <footer className="studio-footer">
-            <span>
-              <i />
-              {state.ready ? 'SESSION READY' : 'LOADING SESSION'}
-            </span>
-            <span>
-              CLIENT-SIDE AUDIO <b>/</b> NO CLOUD
-            </span>
-            <span>LA LA LA LA v0.2</span>
-          </footer>
         </main>
       </div>
       {state.showShortcuts && <Shortcuts onClose={() => useStudio.setState({ showShortcuts: false })} />}
@@ -873,6 +913,12 @@ export default function App() {
       notify('Tip: press ? for keyboard shortcuts.')
     }
   }, [])
-  return <Studio jamMode={path.replace(/\/$/, '') === '/jam'} navigate={navigate} />
+  const clean = path.replace(/\/$/, '')
+  return (
+    <Studio
+      view={clean === '/jam' ? 'jam' : clean === '/lab' ? 'lab' : clean === '/learn' ? 'learn' : 'studio'}
+      navigate={navigate}
+    />
+  )
 }
 let jamFirstVisit = true

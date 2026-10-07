@@ -135,12 +135,25 @@ export async function noteOn(track: Track, pitch: number, velocity = 1) {
     const beat = engine.positionBeats()
     if (engine.countingIn) return
     if (!state.songMode) {
-      recordHit(
-        track,
-        track.pads[0] ?? ({ id: track.sequencerPadId } as Pad),
-        velocity,
-        hitBeat(engine.context!.currentTime),
+      const pattern = state.project.patterns.find(item => item.id === state.patternId)
+      if (!pattern) return
+      const totalBeats = (pattern.bars * stepsPerBar(state.project)) / 4
+      const grid = state.mpc.quantize
+      const raw = hitBeat(engine.context!.currentTime)
+      const local = ((raw % totalBeats) + totalBeats) % totalBeats
+      const start = grid > 0 ? (Math.round(local / grid) * grid) % totalBeats : Math.round(local * 64) / 64
+      const noteId = uid()
+      state.edit(
+        'Record note',
+        project => {
+          const row = project.patterns
+            .find(item => item.id === pattern.id)
+            ?.trackSteps.find(item => item.trackId === track.id)
+          if (row) row.notes.push({ id: noteId, pitch, start, length: Math.max(0.0625, grid || 0.25), velocity })
+        },
+        `record-note-${track.id}`,
       )
+      heldNotes.set(`${track.id}:${pitch}`, { clipId: `pattern:${pattern.id}`, noteId })
       return
     }
     const noteId = uid()
@@ -169,6 +182,25 @@ export function noteOff(track: Track, pitch: number) {
   const beat = engine.positionBeats()
   if (beat < 0) return
   const state = useStudio.getState()
+  if (held.clipId.startsWith('pattern:')) {
+    const patternId = held.clipId.slice(8)
+    state.edit(
+      'Note length',
+      project => {
+        const pattern = project.patterns.find(item => item.id === patternId)
+        const row = pattern?.trackSteps.find(item => item.trackId === track.id)
+        const note = row?.notes.find(item => item.id === held.noteId)
+        if (!pattern || !note) return
+        const totalBeats = (pattern.bars * stepsPerBar(project)) / 4
+        const local = ((beat % totalBeats) + totalBeats) % totalBeats
+        const end = state.mpc.quantize > 0 ? Math.round(local / state.mpc.quantize) * state.mpc.quantize : local
+        const length = end > note.start ? end - note.start : totalBeats - note.start + end
+        note.length = Math.max(0.0625, Math.min(totalBeats - note.start, length))
+      },
+      `record-note-${track.id}`,
+    )
+    return
+  }
   state.edit(
     'Note length',
     project => {
@@ -358,6 +390,7 @@ export function addTrack(kind: TrackKind) {
       pattern.trackSteps.push({
         trackId: track.id,
         steps: Array.from({ length: pattern.bars * stepsPerBar(project) }, makeStep),
+        notes: [],
       })
   })
   const track = useStudio.getState().project.tracks.find(item => item.id === id)
@@ -456,6 +489,7 @@ export function createPattern(copyFromId?: string, bars?: number) {
       pattern.trackSteps = source.trackSteps.map(row => ({
         trackId: row.trackId,
         steps: row.steps.map(step => ({ ...step })),
+        notes: row.notes.map(note => ({ ...note, id: uid() })),
       }))
     id = pattern.id
     project.patterns.push(pattern)

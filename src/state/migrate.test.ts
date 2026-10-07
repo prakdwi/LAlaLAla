@@ -90,8 +90,18 @@ it('pads short pattern rows to the pattern length and drops rows for missing tra
   const current = makeProject()
   current.patterns[0].bars = 2
   current.patterns[0].trackSteps[0].steps.length = 4
-  current.patterns[0].trackSteps.push({ trackId: 'ghost', steps: [] })
+  current.patterns[0].trackSteps.push({ trackId: 'ghost', steps: [], notes: [] })
   const project = migrateProject(current)
   expect(project.patterns[0].trackSteps.every(row => row.steps.length === 32)).toBe(true)
   expect(project.patterns[0].trackSteps.some(row => row.trackId === 'ghost')).toBe(false)
+})
+
+it('v2 projects gain empty note lists on every pattern row', () => {
+  const current = makeProject() as unknown as Record<string, unknown>
+  const patterns = current.patterns as { trackSteps: Record<string, unknown>[] }[]
+  for (const row of patterns[0].trackSteps) delete row.notes
+  current.schemaVersion = 2
+  const project = migrateProject(current)
+  expect(project.schemaVersion).toBe(SCHEMA_VERSION)
+  expect(project.patterns[0].trackSteps.every(row => Array.isArray(row.notes) && row.notes.length === 0)).toBe(true)
 })

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Scissors, Upload, ZoomIn, ZoomOut } from 'lucide-react'
+import { Save, Scissors, Upload, ZoomIn, ZoomOut } from 'lucide-react'
+import { saveKitToLibrary } from '../db/library'
 import { engine } from '../audio/engine'
 import { detectSlices } from '../audio/slicing'
 import { uid } from '../state/defaults'
@@ -153,6 +154,14 @@ export function WaveformEditor() {
           <button disabled={loading || !ready} onClick={() => picker.current?.click()}>
             <Upload size={13} />
             {loading ? 'Decoding...' : 'Load sample'}
+          </button>
+          <button
+            disabled={!buffer || loading}
+            onClick={() => void saveKitToLibrary(track)}
+            title="Save this kit to the sound library"
+          >
+            <Save size={13} />
+            Save kit
           </button>
         </div>
       </div>

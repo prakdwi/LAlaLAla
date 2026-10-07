@@ -115,6 +115,7 @@ export function makePattern(project: Pick<Project, 'tracks' | 'timeSignature'>, 
     trackSteps: project.tracks.map(track => ({
       trackId: track.id,
       steps: Array.from({ length: bars * stepsPerBar(project) }, makeStep),
+      notes: [],
     })),
   }
 }
@@ -138,6 +139,7 @@ export function makeProject(): Project {
     bars: 1,
     trackSteps: tracks.map((track, index) => ({
       trackId: track.id,
+      notes: [],
       steps: Array.from({ length: 16 }, (_, step) => ({
         active: (index === 0
           ? [0, 6, 8]

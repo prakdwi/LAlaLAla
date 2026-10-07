@@ -4,7 +4,7 @@
  * Time units: clip positions and lengths are in beats (quarter notes). Pattern steps are
  * sixteenth notes, so a bar holds timeSignature.beats * 4 steps.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export type EffectType =
   'filter' | 'delay' | 'reverb' | 'bitcrush' | 'eq' | 'compressor' | 'chorus' | 'saturation' | 'limiter'
@@ -113,7 +113,9 @@ export type Track = {
 }
 
 export type Step = { active: boolean; velocity: number; microTimingMs: number; padId?: string }
-export type Pattern = { id: string; name: string; bars: number; trackSteps: { trackId: string; steps: Step[] }[] }
+/** One track's row in a pattern: step hits for pads plus polyphonic pitched notes (beats from pattern start). */
+export type PatternRow = { trackId: string; steps: Step[]; notes: Note[] }
+export type Pattern = { id: string; name: string; bars: number; trackSteps: PatternRow[] }
 
 export type Note = { id: string; pitch: number; start: number; length: number; velocity: number }
 
@@ -174,5 +176,20 @@ export type Project = {
   createdAt: number
   updatedAt: number
 }
+
+/** Cross-project sound library (IndexedDB 'library' store). Audio lives in the 'audio' store by bufferId. */
+export type LibraryItem =
+  | {
+      id: string
+      kind: 'sample'
+      name: string
+      createdAt: number
+      bufferId: string
+      duration: number
+      slices: number[]
+      tags: string[]
+    }
+  | { id: string; kind: 'kit'; name: string; createdAt: number; sampleBufferId: string; pads: Pad[]; tags: string[] }
+  | { id: string; kind: 'synth'; name: string; createdAt: number; synth: SynthParams; tags: string[] }
 
 export type ProjectSummary = { id: string; name: string; updatedAt: number; bpm: number; trackCount: number }

@@ -12,6 +12,7 @@ export function migrateProject(input: unknown): Project {
   if (version > SCHEMA_VERSION) throw new Error(`This project was saved by a newer version (schema ${version}).`)
   if (version < 1) project = v0ToV1(project)
   if (version < 2) project = v1ToV2(project)
+  if (version < 3) project = v2ToV3(project)
   return validate(project as unknown as Project)
 }
 
@@ -85,6 +86,15 @@ function v1ToV2(project: Record<string, unknown>) {
   return { ...project, schemaVersion: 2 }
 }
 
+/** v3: pattern rows carry polyphonic pitched notes. */
+function v2ToV3(project: Record<string, unknown>) {
+  const patterns = Array.isArray(project.patterns) ? (project.patterns as Record<string, unknown>[]) : []
+  for (const pattern of patterns)
+    if (Array.isArray(pattern.trackSteps))
+      for (const row of pattern.trackSteps as Record<string, unknown>[]) row.notes ??= []
+  return { ...project, schemaVersion: 3 }
+}
+
 function validate(project: Project): Project {
   if (!Array.isArray(project.tracks) || !Array.isArray(project.patterns))
     throw new Error('Project is missing tracks or patterns.')
@@ -124,9 +134,10 @@ function validate(project: Project): Project {
     for (const track of project.tracks) {
       let row = pattern.trackSteps.find(item => item.trackId === track.id)
       if (!row) {
-        row = { trackId: track.id, steps: [] }
+        row = { trackId: track.id, steps: [], notes: [] }
         pattern.trackSteps.push(row)
       }
+      row.notes ??= []
       const wanted = pattern.bars * perBar
       while (row.steps.length < wanted) row.steps.push({ active: false, velocity: 1, microTimingMs: 0 })
       if (row.steps.length > wanted) row.steps.length = wanted

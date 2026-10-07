@@ -9,6 +9,7 @@ import {
   Mic,
   Plus,
   Repeat,
+  Save,
   Scissors,
   Square,
   Trash2,
@@ -37,6 +38,10 @@ import { addPadBank, BANK_NAMES, bankCount } from '../state/sampling'
 import { stepsPerBar } from '../state/defaults'
 import { engine } from '../audio/engine'
 import { PadGrid } from './PadGrid'
+import { KeyboardPiano } from './KeyboardPiano'
+import { SynthPanel } from './SynthPanel'
+import { NoteEditor } from './PianoRoll'
+import { saveKitToLibrary } from '../db/library'
 import { VideoSampler } from './VideoSampler'
 import { WaveformEditor } from './WaveformEditor'
 import { IconButton } from './Controls'
@@ -106,10 +111,13 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
   const track = project.tracks.find(item => item.id === selectedTrackId) ?? project.tracks[0]
   const pad = track.pads.find(item => item.id === selectedPadId) ?? track.pads[0]
   const buffer = engine.buffers.get(track.sampleBufferId)
-  const padTracks = project.tracks.filter(item => item.kind === 'drums' || item.kind === 'keys')
-  const noteCount = pattern?.trackSteps.reduce((sum, row) => sum + row.steps.filter(step => step.active).length, 0) ?? 0
-  const trackNotes =
-    pattern?.trackSteps.find(row => row.trackId === track.id)?.steps.filter(step => step.active).length ?? 0
+  const noteCount =
+    pattern?.trackSteps.reduce(
+      (sum, row) => sum + row.steps.filter(step => step.active).length + row.notes.length,
+      0,
+    ) ?? 0
+  const trackRow = pattern?.trackSteps.find(row => row.trackId === track.id)
+  const trackNotes = (trackRow?.steps.filter(step => step.active).length ?? 0) + (trackRow?.notes.length ?? 0)
   const banks = bankCount(track)
   const newTake = () => {
     stop()
@@ -453,11 +461,16 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
           </div>
         </div>
         <div className="mpc-center">
-          {padTracks.length > 0 && (track.kind === 'drums' || track.kind === 'keys') ? (
+          {track.kind === 'drums' ? (
             <PadGrid />
+          ) : track.kind === 'keys' || track.kind === 'synth' ? (
+            <>
+              <KeyboardPiano track={track} />
+              {pattern && <PatternNoteEditor patternId={pattern.id} trackId={track.id} />}
+            </>
           ) : (
             <div className="youtube-empty tall">
-              <span>Select a drum or keys kit to use the pads.</span>
+              <span>Select a drum, keys or synth kit to play.</span>
             </div>
           )}
           <div className="section-foot">
@@ -465,68 +478,83 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
               {stepsPerBar(project) * (pattern?.bars ?? 1)} STEPS <b>/</b> {pattern?.bars ?? 1} BAR
               {(pattern?.bars ?? 1) > 1 ? 'S' : ''}
             </span>
-            <span>Hit low on a pad for full velocity, high for soft. Hold a pad with Repeat on for rolls.</span>
+            <span>
+              {track.kind === 'drums'
+                ? 'Hit low on a pad for full velocity, high for soft. Hold a pad with Repeat on for rolls.'
+                : 'Play the keyboard while recording a take; notes land in the piano roll.'}
+            </span>
           </div>
         </div>
         <div className="mpc-right">
-          <div className="chop-bar">
-            <span className="eyebrow">
-              <Scissors size={12} /> CHOP
-            </span>
-            <select
-              aria-label="Chop mode"
-              value={mpc.chopMode}
-              onChange={event => setMpc({ chopMode: event.target.value as 'auto' | 'equal' })}
-            >
-              <option value="auto">Threshold</option>
-              <option value="equal">Equal regions</option>
-            </select>
-            {mpc.chopMode === 'auto' ? (
-              <label>
-                Sensitivity
-                <input
-                  aria-label="Chop sensitivity"
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={mpc.chopSensitivity}
-                  onChange={event => setMpc({ chopSensitivity: Number(event.target.value) })}
-                />
-              </label>
-            ) : (
-              <label>
-                Regions
-                <select
-                  aria-label="Chop region count"
-                  value={mpc.chopCount}
-                  onChange={event => setMpc({ chopCount: Number(event.target.value) })}
-                >
-                  {[4, 8, 16, 32].map(count => (
-                    <option key={count} value={count}>
-                      {count}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button
-              disabled={!buffer}
-              onClick={() => {
-                const count = chop(track, mpc.chopMode, { sensitivity: mpc.chopSensitivity, count: mpc.chopCount })
-                if (count) setMessage('')
-              }}
-            >
-              Chop
-            </button>
-            <button
-              disabled={!buffer || !pad}
-              onClick={() => pad && splitPadAtMarker(track, pad)}
-              title="Make this pad's IN point a new slice"
-            >
-              Slice here
-            </button>
-          </div>
+          {track.kind === 'synth' && <SynthPanel track={track} />}
+          {(track.kind === 'drums' || track.kind === 'keys') && (
+            <div className="chop-bar">
+              <span className="eyebrow">
+                <Scissors size={12} /> CHOP
+              </span>
+              <select
+                aria-label="Chop mode"
+                value={mpc.chopMode}
+                onChange={event => setMpc({ chopMode: event.target.value as 'auto' | 'equal' })}
+              >
+                <option value="auto">Threshold</option>
+                <option value="equal">Equal regions</option>
+              </select>
+              {mpc.chopMode === 'auto' ? (
+                <label>
+                  Sensitivity
+                  <input
+                    aria-label="Chop sensitivity"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={mpc.chopSensitivity}
+                    onChange={event => setMpc({ chopSensitivity: Number(event.target.value) })}
+                  />
+                </label>
+              ) : (
+                <label>
+                  Regions
+                  <select
+                    aria-label="Chop region count"
+                    value={mpc.chopCount}
+                    onChange={event => setMpc({ chopCount: Number(event.target.value) })}
+                  >
+                    {[4, 8, 16, 32].map(count => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                disabled={!buffer}
+                onClick={() => {
+                  const count = chop(track, mpc.chopMode, { sensitivity: mpc.chopSensitivity, count: mpc.chopCount })
+                  if (count) setMessage('')
+                }}
+              >
+                Chop
+              </button>
+              <button
+                disabled={!buffer || !pad}
+                onClick={() => pad && splitPadAtMarker(track, pad)}
+                title="Make this pad's IN point a new slice"
+              >
+                Slice here
+              </button>
+              <button
+                disabled={!buffer}
+                onClick={() => void saveKitToLibrary(track)}
+                title="Save this kit (sample + pads) to the sound library"
+              >
+                <Save size={12} />
+                Save kit
+              </button>
+            </div>
+          )}
           {(track.kind === 'drums' || track.kind === 'keys') && (
             <WaveformEditor key={track.sampleBufferId + track.id} />
           )}
@@ -538,5 +566,38 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
         any other. Only sample material you have the right to use.
       </p>
     </section>
+  )
+}
+
+/** Piano roll over one track's notes in a pattern (the Jam take). */
+function PatternNoteEditor({ patternId, trackId }: { patternId: string; trackId: string }) {
+  const { project, edit, playhead, playing, songMode } = useStudio()
+  const pattern = project.patterns.find(item => item.id === patternId)
+  const row = pattern?.trackSteps.find(item => item.trackId === trackId)
+  if (!pattern || !row) return null
+  const length = (pattern.bars * stepsPerBar(project)) / 4
+  return (
+    <NoteEditor
+      source={{
+        id: `${pattern.id}:${trackId}`,
+        title: `${pattern.name} / ${project.tracks.find(item => item.id === trackId)?.name ?? ''}`,
+        trackId,
+        notes: row.notes,
+        length,
+        loopLength: length,
+        localPosition: playing && !songMode && playhead >= 0 ? playhead / 4 : -1,
+        update: (label, change, key) =>
+          edit(
+            label,
+            draft => {
+              const target = draft.patterns
+                .find(item => item.id === patternId)
+                ?.trackSteps.find(item => item.trackId === trackId)
+              if (target) change(target.notes)
+            },
+            key,
+          ),
+      }}
+    />
   )
 }

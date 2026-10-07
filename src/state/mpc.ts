@@ -158,6 +158,7 @@ export function clearTrack(track: Track) {
       .find(item => item.id === state.patternId)
       ?.trackSteps.find(item => item.trackId === track.id)
     row?.steps.forEach(step => Object.assign(step, makeStep()))
+    if (row) row.notes = []
   })
 }
 export function clearPattern() {
@@ -165,7 +166,10 @@ export function clearPattern() {
   state.edit('Clear pattern', draft => {
     draft.patterns
       .find(item => item.id === state.patternId)
-      ?.trackSteps.forEach(row => row.steps.forEach(step => Object.assign(step, makeStep())))
+      ?.trackSteps.forEach(row => {
+        row.steps.forEach(step => Object.assign(step, makeStep()))
+        row.notes = []
+      })
   })
 }
 
@@ -314,6 +318,7 @@ export async function stopSampling(track: Track, toNewTrack: boolean, name?: str
         pattern.trackSteps.push({
           trackId: created.id,
           steps: Array.from({ length: pattern.bars * stepsPerBar(draft) }, makeStep),
+          notes: [],
         })
     }
     assignSample(draft, targetId, bufferId, result.buffer.duration, starts)
@@ -395,6 +400,7 @@ export async function resamplePattern() {
         item.trackSteps.push({
           trackId: created.id,
           steps: Array.from({ length: item.bars * stepsPerBar(draft) }, makeStep),
+          notes: [],
         })
       assignSample(draft, created.id, bufferId, rendered.duration, starts)
     })
@@ -425,6 +431,7 @@ export function duplicateTrack(trackId: string) {
       pattern.trackSteps.splice(index + 1, 0, {
         trackId: copy.id,
         steps: Array.from({ length: pattern.bars * stepsPerBar(draft) }, makeStep),
+        notes: [],
       })
     }
   })

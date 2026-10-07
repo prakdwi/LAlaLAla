@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { applyPatches, enablePatches, produceWithPatches, type Draft, type Patch } from 'immer'
-import type { Project, ProjectSummary } from './types'
+import type { LibraryItem, Project, ProjectSummary } from './types'
 import { makeProject } from './defaults'
 import { defaultMpc, type MpcState } from './mpc'
 
@@ -38,6 +38,7 @@ export type StudioState = {
   keyboardOctave: number
   showShortcuts: boolean
   mpc: MpcState
+  library: LibraryItem[]
   projects: ProjectSummary[]
   inputArmed: boolean
   recordingAudio: boolean
@@ -80,6 +81,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   keyboardOctave: 4,
   showShortcuts: false,
   mpc: defaultMpc(),
+  library: [],
   projects: [],
   inputArmed: false,
   recordingAudio: false,

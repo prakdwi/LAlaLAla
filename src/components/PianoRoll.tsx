@@ -23,9 +23,58 @@ type Drag = {
   velocity: number
 }
 
-/** Grid editor for MIDI clips. Click to add notes, drag to move, drag the right edge to resize. */
+export type NoteSource = {
+  /** stable identity for scroll memory and keys */
+  id: string
+  title: string
+  trackId: string
+  notes: Note[]
+  /** editable length in beats */
+  length: number
+  /** loop length in beats, when the content loops inside `length` */
+  loopLength: number
+  /** position of the playhead inside this source, in beats, or -1 */
+  localPosition: number
+  /** apply a mutation to the notes array (inside an undoable edit) */
+  update: (label: string, change: (notes: Note[]) => void, key?: string) => void
+  setLoopLength?: (beats: number) => void
+}
+
+/** Piano roll over a MIDI clip's notes. */
 export function PianoRoll({ clip }: { clip: MidiClip }) {
-  const { project, edit, positionBeats, noteFlashes, quantize } = useStudio()
+  const { edit, positionBeats } = useStudio()
+  const source: NoteSource = {
+    id: clip.id,
+    title: clip.name,
+    trackId: clip.trackId,
+    notes: clip.notes,
+    length: clip.length,
+    loopLength: clip.loopLength,
+    localPosition:
+      positionBeats >= clip.start && positionBeats < clip.start + clip.length
+        ? (positionBeats - clip.start) % Math.max(0.25, clip.loopLength || clip.length)
+        : -1,
+    update: (label, change, key) =>
+      edit(
+        label,
+        draft => {
+          const target = draft.clips.find(item => item.id === clip.id)
+          if (target?.kind === 'midi') change(target.notes)
+        },
+        key,
+      ),
+    setLoopLength: beats =>
+      edit('Loop length', draft => {
+        const target = draft.clips.find(item => item.id === clip.id)
+        if (target?.kind === 'midi') target.loopLength = Math.max(0.25, beats)
+      }),
+  }
+  return <NoteEditor source={source} />
+}
+
+/** Grid editor over any note list. Click to add notes, drag to move, drag the right edge to resize. */
+export function NoteEditor({ source: clip }: { source: NoteSource }) {
+  const { project, noteFlashes, quantize } = useStudio()
   const track = project.tracks.find(item => item.id === clip.trackId)
   const [zoom, setZoom] = useState(64)
   const [selected, setSelected] = useState<string>('')
@@ -42,15 +91,7 @@ export function PianoRoll({ clip }: { clip: MidiClip }) {
     element.scrollTop = y(Math.round(center)) - element.clientHeight / 2
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- handlers are recreated per render; the listeners only need the drag state
   }, [clip.id])
-  const update = (label: string, change: (notes: Note[]) => void, key?: string) =>
-    edit(
-      label,
-      draft => {
-        const target = draft.clips.find(item => item.id === clip.id)
-        if (target?.kind === 'midi') change(target.notes)
-      },
-      key,
-    )
+  const update = clip.update
   useEffect(() => {
     if (!drag) return
     const move = (event: PointerEvent) => {
@@ -101,15 +142,12 @@ export function PianoRoll({ clip }: { clip: MidiClip }) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- handlers are recreated per render; the listeners only need the drag state
   }, [drag, zoom, grid, clip.length])
   const selectedNote = clip.notes.find(note => note.id === selected)
-  const local =
-    positionBeats >= clip.start && positionBeats < clip.start + clip.length
-      ? (positionBeats - clip.start) % Math.max(0.25, clip.loopLength || clip.length)
-      : -1
+  const local = clip.localPosition
   return (
     <section className="piano-roll-section" aria-label="Piano roll">
       <div className="section-heading">
         <h2>
-          Piano roll <span className="tag">{clip.name}</span>
+          Piano roll <span className="tag">{clip.title}</span>
         </h2>
         <div className="inline-actions">
           <span className="eyebrow">{track?.name}</span>
@@ -122,22 +160,19 @@ export function PianoRoll({ clip }: { clip: MidiClip }) {
             <Magnet size={13} />
             1/16
           </button>
-          <label>
-            Loop
-            <input
-              aria-label="Clip loop length"
-              type="number"
-              min={0.25}
-              step={0.25}
-              value={clip.loopLength}
-              onChange={event =>
-                edit('Loop length', draft => {
-                  const target = draft.clips.find(item => item.id === clip.id)
-                  if (target?.kind === 'midi') target.loopLength = Math.max(0.25, Number(event.target.value) || 0.25)
-                })
-              }
-            />
-          </label>
+          {clip.setLoopLength && (
+            <label>
+              Loop
+              <input
+                aria-label="Clip loop length"
+                type="number"
+                min={0.25}
+                step={0.25}
+                value={clip.loopLength}
+                onChange={event => clip.setLoopLength!(Number(event.target.value) || 0.25)}
+              />
+            </label>
+          )}
           <IconButton title="Zoom out piano roll" onClick={() => setZoom(Math.max(16, zoom / 1.5))}>
             <Minus size={14} />
           </IconButton>

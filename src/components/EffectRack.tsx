@@ -267,6 +267,7 @@ export function EffectRack() {
                     />
                     <Range
                       label="Attack"
+                      context="compressor"
                       value={effect.params.attack}
                       min={0.001}
                       max={0.3}
@@ -276,6 +277,7 @@ export function EffectRack() {
                     />
                     <Range
                       label="Release"
+                      context="compressor"
                       value={effect.params.release}
                       min={0.02}
                       max={1.5}

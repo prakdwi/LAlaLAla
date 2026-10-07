@@ -70,15 +70,29 @@ export function scheduleStep(ctx: StepContext, index: number, time: number) {
     const pattern = project.patterns.find(item => item.id === patternId)
     if (!pattern) return
     events?.push({ time, patternId, localStep })
+    const patternBeats = (pattern.bars * perBar) / 4
     for (const row of pattern.trackSteps) {
-      const step = row.steps[localStep]
       const track = project.tracks.find(item => item.id === row.trackId)
-      if (!step?.active || !track || track.kind === 'audio' || track.kind === 'bus') continue
-      const when = Math.max(
-        graph.context.currentTime,
-        time + Math.max(-50, Math.min(gate * 1000, step.microTimingMs)) / 1000,
-      )
-      fire(track, step, when)
+      if (!track || track.kind === 'audio' || track.kind === 'bus') continue
+      const step = row.steps[localStep]
+      if (step?.active) {
+        const when = Math.max(
+          graph.context.currentTime,
+          time + Math.max(-50, Math.min(gate * 1000, step.microTimingMs)) / 1000,
+        )
+        fire(track, step, when)
+      }
+      if (row.notes?.length && (track.kind === 'keys' || track.kind === 'synth')) {
+        const localBeat = localStep / 4
+        for (const note of row.notes) {
+          if (note.start < localBeat || note.start >= localBeat + 0.25) continue
+          const when = time + (note.start - localBeat) * beatSeconds(bpm)
+          const duration = Math.max(0.02, Math.min(note.length, patternBeats - note.start) * beatSeconds(bpm))
+          if (graph.triggerNote(track, note.pitch, when, note.velocity, duration, bpm)) {
+            events?.push({ time: when, trackId: track.id, pitch: note.pitch })
+          }
+        }
+      }
     }
   }
 

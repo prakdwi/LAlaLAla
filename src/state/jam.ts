@@ -42,13 +42,17 @@ export function createJamPattern(project: Project) {
 /** Copies the take into an independent pattern and appends it to the arrangement as one clip. */
 export function addJamToSong(project: Project, patternId: string, name: string, repeatCount: number) {
   const source = project.patterns.find(pattern => pattern.id === patternId)
-  if (!source || !source.trackSteps.some(row => row.steps.some(step => step.active)))
+  if (!source || !source.trackSteps.some(row => row.steps.some(step => step.active) || row.notes.length))
     throw new Error('Record pads or activate some steps before adding this take to the song.')
   const pattern = {
     ...source,
     id: crypto.randomUUID(),
     name: name.trim() || source.name,
-    trackSteps: source.trackSteps.map(row => ({ ...row, steps: row.steps.map(step => ({ ...step })) })),
+    trackSteps: source.trackSteps.map(row => ({
+      ...row,
+      steps: row.steps.map(step => ({ ...step })),
+      notes: row.notes.map(note => ({ ...note, id: crypto.randomUUID() })),
+    })),
   }
   project.patterns.push(pattern)
   return appendPatternClip(project, pattern.id, pattern.name, repeatCount)

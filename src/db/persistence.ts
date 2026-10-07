@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb'
-import type { Project, ProjectSummary } from '../state/types'
+import type { LibraryItem, Project, ProjectSummary } from '../state/types'
 import { engine } from '../audio/engine'
 import { factorySample } from '../audio/demo'
 import { notify, reportError, useStudio } from '../state/store'
@@ -8,7 +8,7 @@ import { makeProject } from '../state/defaults'
 import { stop } from '../state/actions'
 
 const DB_NAME = 'songforge'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const database = () =>
   openDB(DB_NAME, DB_VERSION, {
@@ -17,6 +17,7 @@ const database = () =>
         db.createObjectStore('projects')
         db.createObjectStore('audio')
       }
+      if (oldVersion < 3) db.createObjectStore('library')
       if (oldVersion < 2) {
         db.createObjectStore('meta')
         // v1 kept a single project under the key "current"; re-key it by id.
@@ -75,6 +76,12 @@ export async function collectGarbage(keep = new Set<string>()) {
   const projects = (await db.getAll('projects')) as Project[]
   const referenced = new Set<string>(keep)
   for (const project of projects) for (const id of referencedAudio(project)) referenced.add(id)
+  if (db.objectStoreNames.contains('library')) {
+    for (const item of (await db.getAll('library')) as LibraryItem[]) {
+      if (item.kind === 'sample') referenced.add(item.bufferId)
+      if (item.kind === 'kit') referenced.add(item.sampleBufferId)
+    }
+  }
   const transaction = db.transaction('audio', 'readwrite')
   let removed = 0
   for (const key of await transaction.store.getAllKeys()) {
@@ -117,9 +124,12 @@ async function loadAudio(db: IDBPDatabase, project: Project) {
 async function activate(project: Project, db?: IDBPDatabase) {
   const handle = db ?? (await database())
   await loadAudio(handle, project)
+  const library = handle.objectStoreNames.contains('library')
+    ? ((await handle.getAll('library')) as LibraryItem[]).sort((a, b) => b.createdAt - a.createdAt)
+    : []
   if (!db) handle.close()
   useStudio.getState().hydrate(project)
-  useStudio.setState({ projects: await listProjects() })
+  useStudio.setState({ projects: await listProjects(), library })
 }
 
 let boot: Promise<void> | undefined

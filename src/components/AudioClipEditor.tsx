@@ -113,6 +113,7 @@ export function AudioClipEditor({ clip }: { clip: AudioClip }) {
         />
         <Range
           label="Offset"
+          context="clip"
           value={clip.offset}
           min={0}
           max={Math.max(0.01, (buffer?.duration ?? 1) - 0.01)}
@@ -164,6 +165,7 @@ export function AudioClipEditor({ clip }: { clip: AudioClip }) {
         />
         <Range
           label="Pitch"
+          context="clip"
           value={clip.pitchSemitones}
           min={-24}
           max={24}
