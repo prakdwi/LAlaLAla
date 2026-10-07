@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+
+const youtubeFixture = readFileSync(new URL('./fixtures/youtube-api.js', import.meta.url), 'utf8')
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -317,6 +320,9 @@ test('YouTube links, Jam recording, independent song transfer, reload and WAV ex
   await page.route('https://www.youtube-nocookie.com/**', route =>
     route.fulfill({ contentType: 'text/html', body: '<html><body>Embedded player test fixture</body></html>' }),
   )
+  await page.route('https://www.youtube.com/iframe_api', route =>
+    route.fulfill({ contentType: 'application/javascript', body: youtubeFixture }),
+  )
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.getByRole('link', { name: 'Jam', exact: true }).click()
@@ -331,6 +337,26 @@ test('YouTube links, Jam recording, independent song transfer, reload and WAV ex
     'src',
     /youtube-nocookie.com\/embed\/jfKfPfyJRdk\?start=30/,
   )
+  // tab-audio sampling of the backing video, with a stubbed share dialog that returns a tone
+  await page.evaluate(() => {
+    const context = new AudioContext()
+    const destination = context.createMediaStreamDestination()
+    const osc = context.createOscillator()
+    osc.frequency.value = 220
+    osc.connect(destination)
+    osc.start()
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', {
+      value: async () => destination.stream,
+      configurable: true,
+    })
+  })
+  await page.getByRole('button', { name: 'Connect tab audio' }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Tab audio connected')
+  await page.getByLabel('Cue in seconds').fill('30')
+  await page.getByLabel('Cue out seconds').fill('30.8')
+  await page.getByRole('button', { name: 'Sample IN → OUT' }).click()
+  await expect(page.locator('.notice-toast')).toContainText(/Sampled 0\.[6-9]\d s into Kick/, { timeout: 10000 })
+  await expect(page.locator('.sample-info')).not.toContainText('0.600 s')
   await expect(page.locator('.youtube-limit')).toContainText('excluded from WAV exports')
   await page.getByRole('button', { name: 'Record take', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Recording', exact: true })).toHaveAttribute('aria-pressed', 'true')
@@ -428,7 +454,7 @@ test('Jam room MPC modes: banks, 16 levels, quantized recording, note repeat, er
   await expect(page.locator('.notice-toast')).toContainText('Resampled', { timeout: 15000 })
   await expect(page.locator('.track-library button')).toHaveCount(5)
   // sample from the (fake) microphone
-  await page.getByRole('button', { name: 'Sample', exact: true }).click()
+  await page.getByRole('button', { name: 'Sample mic', exact: true }).click()
   await page.waitForTimeout(700)
   await page.getByRole('button', { name: 'Stop sampling' }).click()
   await expect(page.locator('.notice-toast')).toContainText('Sampled', { timeout: 8000 })

@@ -31,6 +31,10 @@ export type MpcState = {
   chopSensitivity: number
   chopCount: number
   sampling: boolean
+  /** where the Sample button records from */
+  sampleSource: 'mic' | 'tab'
+  /** tab audio share is connected and can be sampled without another dialog */
+  tabAudio: boolean
 }
 
 export const defaultMpc = (): MpcState => ({
@@ -45,6 +49,8 @@ export const defaultMpc = (): MpcState => ({
   chopSensitivity: 0.5,
   chopCount: 16,
   sampling: false,
+  sampleSource: 'mic',
+  tabAudio: false,
 })
 
 export const setMpc = (patch: Partial<MpcState>) => useStudio.setState(state => ({ mpc: { ...state.mpc, ...patch } }))
@@ -211,40 +217,94 @@ export function splitPadAtMarker(track: Track, pad: Pad) {
     .edit('Add slice', draft => assignSample(draft, track.id, track.sampleBufferId, buffer.duration, starts))
 }
 
-// ---------- sampling (record from input into a track) ----------
+// ---------- sampling (record from input or tab audio into a track) ----------
 let samplingStart = 0
-export async function startSampling() {
+let samplingTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Ask the browser to share this tab's audio so the backing video can be sampled. */
+export async function connectTabAudio() {
   try {
     await engine.ready()
     const recorder = engine.recorder!
-    if (!recorder.active) await recorder.open(undefined, useStudio.getState().inputDeviceId || undefined)
-    recorder.start()
-    samplingStart = engine.context!.currentTime
-    setMpc({ sampling: true })
+    await recorder.openTabAudio()
+    recorder.onEnded = () => setMpc({ tabAudio: false, sampling: false, sampleSource: 'mic' })
+    setMpc({ tabAudio: true, sampleSource: 'tab' })
+    notify('Tab audio connected. Play the video and press Sample, or set IN / OUT and sample the region.')
+    return true
   } catch (error) {
-    reportError(error instanceof Error && error.name === 'NotAllowedError' ? 'Microphone access was denied.' : error)
+    setMpc({ tabAudio: false })
+    reportError(error instanceof Error && error.name === 'NotAllowedError' ? 'Tab audio sharing was cancelled.' : error)
+    return false
   }
 }
-export async function stopSampling(track: Track, toNewTrack: boolean) {
+export function releaseTabAudio() {
   const recorder = engine.recorder
+  if (recorder?.source === 'tab') recorder.close()
+  setMpc({ tabAudio: false, sampleSource: 'mic', sampling: false })
+}
+
+export async function startSampling(source: 'mic' | 'tab' = useStudio.getState().mpc.sampleSource) {
+  try {
+    await engine.ready()
+    const recorder = engine.recorder!
+    if (source === 'tab') {
+      if (recorder.source !== 'tab' && !(await connectTabAudio())) return false
+      // keep our own pads out of the capture
+      engine.graph?.setOutputMuted(true)
+    } else if (recorder.source !== 'mic') {
+      await recorder.open(undefined, useStudio.getState().inputDeviceId || undefined)
+    }
+    recorder.start()
+    samplingStart = engine.context!.currentTime
+    setMpc({ sampling: true, sampleSource: source })
+    return true
+  } catch (error) {
+    reportError(error instanceof Error && error.name === 'NotAllowedError' ? 'Microphone access was denied.' : error)
+    return false
+  }
+}
+
+export async function stopSampling(track: Track, toNewTrack: boolean, name?: string) {
+  clearTimeout(samplingTimer)
+  const recorder = engine.recorder
+  const source = useStudio.getState().mpc.sampleSource
   setMpc({ sampling: false })
+  engine.graph?.setOutputMuted(false)
   if (!recorder) return
   const result = recorder.finish(samplingStart)
-  if (!useStudio.getState().inputArmed) recorder.close()
+  if (recorder.source === 'mic' && !useStudio.getState().inputArmed) recorder.close()
   if (!result || result.buffer.duration < 0.05) {
-    notify('Nothing was recorded.')
+    notify(
+      source === 'tab'
+        ? 'Nothing was captured. Make sure the video is playing and tab audio is shared.'
+        : 'Nothing was recorded.',
+    )
+    return
+  }
+  const peak = result.buffer.getChannelData(0).reduce((max, value) => Math.max(max, Math.abs(value)), 0)
+  if (peak < 0.001) {
+    notify(
+      source === 'tab'
+        ? 'The capture was silent. Was the video playing with its sound on?'
+        : 'The recording was silent.',
+    )
     return
   }
   const bufferId = uid()
   engine.register(bufferId, result.buffer, result.blob)
-  const starts = detectSlices(result.buffer.getChannelData(0), result.buffer.sampleRate)
+  const starts = detectSlices(
+    result.buffer.getChannelData(0),
+    result.buffer.sampleRate,
+    16,
+    useStudio.getState().mpc.chopSensitivity,
+  )
   const state = useStudio.getState()
   let targetId = track.id
   state.edit(toNewTrack ? 'Sample to new track' : 'Record sample', draft => {
     if (toNewTrack) {
       const created = makeTrack(
         'drums',
-        `Sample ${draft.tracks.filter(item => item.kind === 'drums').length + 1}`,
+        name ?? `Sample ${draft.tracks.filter(item => item.kind === 'drums').length + 1}`,
         draft.tracks.length,
         bufferId,
       )
@@ -261,6 +321,46 @@ export async function stopSampling(track: Track, toNewTrack: boolean) {
   const target = useStudio.getState().project.tracks.find(item => item.id === targetId)
   if (target) selectTrack(target)
   notify(`Sampled ${result.buffer.duration.toFixed(2)} s into ${target?.name ?? 'track'} (${starts.length} slices).`)
+}
+
+/**
+ * Sample a cue region of the backing video: seek, play, capture exactly (out - in) seconds,
+ * then pause and chop onto the kit.
+ */
+export async function sampleVideoRegion(
+  track: Track,
+  toNewTrack: boolean,
+  video: {
+    seek: (seconds: number) => void
+    play: () => void
+    pause: () => void
+    waitForPlaying: (ms?: number) => Promise<void>
+  },
+  cueIn: number,
+  cueOut: number,
+  name?: string,
+) {
+  const length = cueOut - cueIn
+  if (length <= 0.05) {
+    reportError('Set an OUT point after the IN point first.')
+    return
+  }
+  if (length > 60) {
+    reportError('Sample regions are limited to 60 seconds.')
+    return
+  }
+  video.pause()
+  video.seek(cueIn)
+  video.play()
+  await video.waitForPlaying(2000)
+  if (!(await startSampling('tab'))) {
+    video.pause()
+    return
+  }
+  samplingTimer = setTimeout(() => {
+    video.pause()
+    void stopSampling(track, toNewTrack, name)
+  }, length * 1000)
 }
 
 // ---------- resample the current pattern into a new track ----------

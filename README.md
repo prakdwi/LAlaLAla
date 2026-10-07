@@ -50,9 +50,15 @@ The Jam page is a complete MPC-style sampler workflow built around the 4x4 pads,
 - **Chop.** Threshold chopping with a sensitivity slider, equal regions (4–32), or **Slice here** to turn the selected pad's IN point into a new slice. Pads have trim, gain, tune, pan, attack, release, loop, choke group, reverse, mute, a name, and their own effects.
 - **Add to song** copies the take into an independent pattern clip at the end of the arrangement.
 
-### YouTube
+### Sampling the backing video
 
-Paste a YouTube watch, share, Shorts, or live URL and **Load video**. YouTube audio is playback-only: it cannot be sampled, mixed, or exported.
+Paste a YouTube watch, share, Shorts, or live URL and **Load video**. The embed never hands its audio to the page, so sampling goes through the browser's tab-audio share:
+
+1. **Connect tab audio.** Chrome (or Edge) asks you to share this tab; tick **Share tab audio**. This happens once per session.
+2. Scrub the video and **set** IN and OUT at the current time, or type them. **Play IN** previews the region.
+3. **Sample IN → OUT** seeks, plays, captures exactly that region, pauses, and auto-chops it onto the current kit (or a new kit). **Sample video live** records whatever plays until you stop. Your pads are muted during capture so only the video lands in the sample.
+
+The result is an ordinary sample: chop it, trim pads, tune, reverse, and it plays back and exports like anything else. The embedded player itself is still excluded from exports. Tab-audio capture needs a desktop Chromium browser; Safari and Firefox fall back to loading audio files. Only sample material you have the right to use.
 
 ## Architecture
 

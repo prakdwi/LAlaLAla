@@ -5,7 +5,6 @@ import {
   Copy,
   Disc3,
   Eraser,
-  ExternalLink,
   Link,
   Mic,
   Plus,
@@ -38,6 +37,7 @@ import { addPadBank, BANK_NAMES, bankCount } from '../state/sampling'
 import { stepsPerBar } from '../state/defaults'
 import { engine } from '../audio/engine'
 import { PadGrid } from './PadGrid'
+import { VideoSampler } from './VideoSampler'
 import { WaveformEditor } from './WaveformEditor'
 import { IconButton } from './Controls'
 
@@ -102,7 +102,6 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
       session.version++
     }
   }, [])
-  const source = project.jamSource
   const pattern = project.patterns.find(item => item.id === patternId)
   const track = project.tracks.find(item => item.id === selectedTrackId) ?? project.tracks[0]
   const pad = track.pads.find(item => item.id === selectedPadId) ?? track.pads[0]
@@ -337,12 +336,12 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
         <div className="mode-group">
           <Toggle
             on={mpc.sampling}
-            onClick={() => (mpc.sampling ? void stopSampling(track, sampleToNew) : void startSampling())}
+            onClick={() => (mpc.sampling ? void stopSampling(track, sampleToNew) : void startSampling('mic'))}
             title="Record a sample from the microphone into this kit"
             disabled={!ready}
           >
             <Mic size={12} />
-            {mpc.sampling ? 'Stop sampling' : 'Sample'}
+            {mpc.sampling && mpc.sampleSource === 'mic' ? 'Stop sampling' : 'Sample mic'}
           </Toggle>
           <label className="check-label">
             <input type="checkbox" checked={sampleToNew} onChange={event => setSampleToNew(event.target.checked)} />
@@ -361,44 +360,7 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
 
       <div className="mpc-layout">
         <div className="mpc-left">
-          <div className="youtube-player">
-            {source ? (
-              <iframe
-                key={`${source.videoId}-${source.start}`}
-                title="YouTube backing video"
-                src={`https://www.youtube-nocookie.com/embed/${source.videoId}?start=${source.start}&playsinline=1&rel=0`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                referrerPolicy="strict-origin-when-cross-origin"
-                allowFullScreen
-              />
-            ) : (
-              <div className="youtube-empty">
-                <Link size={30} />
-                <span>No backing video</span>
-              </div>
-            )}
-            {source && (
-              <div className="video-actions">
-                <a
-                  href={`https://www.youtube.com/watch?v=${source.videoId}&t=${source.start}s`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <ExternalLink size={12} />
-                  Open on YouTube
-                </a>
-                <button
-                  onClick={() =>
-                    edit('Remove backing video', draft => {
-                      delete draft.jamSource
-                    })
-                  }
-                >
-                  Remove video
-                </button>
-              </div>
-            )}
-          </div>
+          <VideoSampler track={track} toNewKit={sampleToNew} />
           <div className="jam-take">
             <div className="section-heading">
               <h2>Pad performance</h2>
@@ -571,9 +533,9 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
         </div>
       </div>
       <p className="youtube-limit">
-        YouTube audio is playback-only, is not sampled, and is excluded from WAV exports. Video playback is independent
-        of the pad clock. Recorded pad notes and your local samples are included in the song. Use{' '}
-        <strong>Sample</strong> to record your microphone into a kit.
+        The embedded player itself is playback-only and is excluded from WAV exports. To chop the video, connect tab
+        audio and sample it: the captured audio becomes a normal sample on the kit, so it plays back and exports like
+        any other. Only sample material you have the right to use.
       </p>
     </section>
   )

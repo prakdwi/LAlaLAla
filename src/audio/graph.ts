@@ -55,6 +55,8 @@ export class AudioGraph {
   readonly master: GainNode
   readonly masterIn: GainNode
   readonly analyser: AnalyserNode
+  /** final stage; muted while sampling tab audio so pads stay out of the capture */
+  readonly output: GainNode
   private masterChain: EffectChain
   private masterSignature = ''
   private click: GainNode
@@ -74,7 +76,8 @@ export class AudioGraph {
     this.masterChain = effectChain(context, [], 120)
     this.masterIn.connect(this.masterChain.input)
     this.masterChain.output.connect(this.master)
-    this.master.connect(this.analyser).connect(context.destination)
+    this.output = context.createGain()
+    this.master.connect(this.analyser).connect(this.output).connect(context.destination)
     this.click = context.createGain()
     this.click.gain.value = 0.5
     this.click.connect(this.master)
@@ -459,6 +462,10 @@ export class AudioGraph {
 
   isAutomated(target: AutomationTarget) {
     return this.automated.has(targetKey(target))
+  }
+
+  setOutputMuted(muted: boolean) {
+    this.output.gain.setTargetAtTime(muted ? 0 : 1, this.context.currentTime, 0.01)
   }
 
   /** RMS level per track and master, for meters. */

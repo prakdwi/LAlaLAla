@@ -169,7 +169,7 @@ export type Project = {
   loop: LoopRegion
   metronome: boolean
   countInBars: number
-  jamSource?: { videoId: string; start: number }
+  jamSource?: { videoId: string; start: number; cueIn?: number; cueOut?: number }
   jamPatternId?: string
   createdAt: number
   updatedAt: number

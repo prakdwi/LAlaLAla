@@ -34,7 +34,7 @@ export type Recording = { buffer: AudioBuffer; blob: Blob; startTime: number }
 export class InputRecorder {
   private context: AudioContext
   private stream?: MediaStream
-  private source?: MediaStreamAudioSourceNode
+  private source_?: MediaStreamAudioSourceNode
   private node?: AudioWorkletNode
   private monitor: GainNode
   private chunks: { time: number; channels: Float32Array[] }[] = []
@@ -48,20 +48,26 @@ export class InputRecorder {
   get active() {
     return Boolean(this.stream)
   }
+  /** Which input is open: microphone / line-in, or this tab's audio (for sampling embedded video). */
+  source: 'mic' | 'tab' | null = null
+
+  private async loadWorklet() {
+    if (!this.context.audioWorklet) throw new Error('AudioWorklet is required for recording in this browser.')
+    if (loaded.has(this.context)) return
+    const url = URL.createObjectURL(new Blob([processorSource], { type: 'application/javascript' }))
+    try {
+      await this.context.audioWorklet.addModule(url)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+    loaded.add(this.context)
+  }
+
+  /** Microphone or line input. */
   async open(monitorTo?: AudioNode, deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser does not allow microphone capture.')
-    if (!this.context.audioWorklet) throw new Error('AudioWorklet is required for recording in this browser.')
-    if (!loaded.has(this.context)) {
-      const url = URL.createObjectURL(new Blob([processorSource], { type: 'application/javascript' }))
-      try {
-        await this.context.audioWorklet.addModule(url)
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-      loaded.add(this.context)
-    }
-    this.close()
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    await this.loadWorklet()
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
         echoCancellation: false,
@@ -70,7 +76,46 @@ export class InputRecorder {
         channelCount: { ideal: 2 },
       },
     })
-    this.source = this.context.createMediaStreamSource(this.stream)
+    this.attach(stream, 'mic', monitorTo)
+  }
+
+  /**
+   * This tab's audio, through the browser's share dialog ("Share tab audio" must be ticked).
+   * Used to sample the embedded backing video. The video track is stopped immediately.
+   */
+  async openTabAudio() {
+    const media = navigator.mediaDevices as MediaDevices & {
+      getDisplayMedia?: (constraints: MediaStreamConstraints & Record<string, unknown>) => Promise<MediaStream>
+    }
+    if (!media?.getDisplayMedia)
+      throw new Error('This browser cannot capture tab audio. Chrome or Edge on desktop is required.')
+    await this.loadWorklet()
+    const stream = await media.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      preferCurrentTab: true,
+      selfBrowserSurface: 'include',
+      systemAudio: 'exclude',
+      surfaceSwitching: 'exclude',
+    })
+    stream.getVideoTracks().forEach(track => track.stop())
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach(track => track.stop())
+      throw new Error('No audio was shared. Choose this tab and tick "Share tab audio" in the dialog.')
+    }
+    stream.getAudioTracks()[0].addEventListener('ended', () => {
+      if (this.source === 'tab') this.close()
+      this.onEnded?.()
+    })
+    this.attach(stream, 'tab')
+  }
+  onEnded?: () => void
+
+  private attach(stream: MediaStream, source: 'mic' | 'tab', monitorTo?: AudioNode) {
+    this.close()
+    this.stream = stream
+    this.source = source
+    this.source_ = this.context.createMediaStreamSource(stream)
     this.node = new AudioWorkletNode(this.context, 'la-record', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
@@ -84,8 +129,8 @@ export class InputRecorder {
     }
     const silent = this.context.createGain()
     silent.gain.value = 0
-    this.source.connect(this.node).connect(silent).connect(this.context.destination)
-    this.source.connect(this.monitor)
+    this.source_.connect(this.node).connect(silent).connect(this.context.destination)
+    this.source_.connect(this.monitor)
     if (monitorTo) this.monitor.connect(monitorTo)
   }
   setMonitor(enabled: boolean) {
@@ -127,11 +172,12 @@ export class InputRecorder {
   close() {
     this.recording = false
     this.node?.disconnect()
-    this.source?.disconnect()
+    this.source_?.disconnect()
     this.monitor.disconnect()
     this.stream?.getTracks().forEach(track => track.stop())
     this.stream = undefined
-    this.source = undefined
+    this.source_ = undefined
+    this.source = null
     this.node = undefined
   }
   static async devices() {
