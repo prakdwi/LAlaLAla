@@ -13,19 +13,27 @@ export type TutorialStep = {
   /** performs the step in the app; absent for steps the learner does by hand */
   run?: () => Promise<void> | void
   runLabel?: string
+  /** screen to open after the step runs */
+  goTo?: 'studio' | 'jam' | 'lab'
 }
 
 export type Tutorial = {
   id: string
-  song: string
-  artist: string
+  section: 'tools' | 'songs'
+  /** card and heading title */
+  title: string
+  /** artist for songs, a short tagline for tool lessons */
+  subtitle: string
+  /** the project the steps build in; required by every step after the first */
   projectName: string
-  tempo: string
-  feel: string
-  key: string
+  tempo?: string
+  feel?: string
+  key?: string
   summary: string
   listenFor: string[]
   steps: TutorialStep[]
+  /** songs only: the record the play-along panel loads */
+  reference?: { song: string; artist: string }
 }
 
 const every = (start: number, step: number, end: number) =>
@@ -35,8 +43,10 @@ const every = (start: number, step: number, end: number) =>
 const NIAGARA = 'Niagara-style beat'
 const niagara: Tutorial = {
   id: 'niagara-falls',
-  song: 'Niagara Falls (Foot or 2)',
-  artist: 'Travis Scott',
+  section: 'songs',
+  title: 'Niagara Falls (Foot or 2)',
+  subtitle: 'Travis Scott',
+  reference: { song: 'Niagara Falls (Foot or 2)', artist: 'Travis Scott' },
   projectName: NIAGARA,
   tempo: '150 BPM, played half-time (feels like 75)',
   feel: 'Dark, spacious trap: booming 808s, rolling hats, a haunting melody drenched in reverb',
@@ -289,8 +299,10 @@ const niagara: Tutorial = {
 const SKY = 'Touch-the-Sky-style beat'
 const touchTheSky: Tutorial = {
   id: 'touch-the-sky',
-  song: 'Touch the Sky',
-  artist: 'Kanye West',
+  section: 'songs',
+  title: 'Touch the Sky',
+  subtitle: 'Kanye West',
+  reference: { song: 'Touch the Sky', artist: 'Kanye West' },
   projectName: SKY,
   tempo: 'About 100 BPM with a light swing',
   feel: 'Triumphant soul: a sped-up horn sample, live-sounding funk drums, big and bright',
@@ -512,8 +524,10 @@ const touchTheSky: Tutorial = {
 const DUST = '1985-style beat'
 const nineteen85: Tutorial = {
   id: '1985',
-  song: '1985',
-  artist: 'Freddie Gibbs & Madlib',
+  section: 'songs',
+  title: '1985',
+  subtitle: 'Freddie Gibbs & Madlib',
+  reference: { song: '1985', artist: 'Freddie Gibbs & Madlib' },
   projectName: DUST,
   tempo: 'About 88 BPM with heavy swing',
   feel: 'Dusty, loop-based boom bap: a warm, slightly woozy keys loop and loose drums',
@@ -739,4 +753,7 @@ const nineteen85: Tutorial = {
   ],
 }
 
-export const TUTORIALS: Tutorial[] = [niagara, touchTheSky, nineteen85]
+export const SONG_TUTORIALS: Tutorial[] = [niagara, touchTheSky, nineteen85]
+
+import { TOOL_TUTORIALS } from './tools'
+export const TUTORIALS: Tutorial[] = [...TOOL_TUTORIALS, ...SONG_TUTORIALS]

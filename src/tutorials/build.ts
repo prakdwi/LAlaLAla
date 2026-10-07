@@ -271,3 +271,24 @@ function selectByName(name: string) {
 
 export const kitIdFor = (projectName: string, trackName: string) =>
   trackByName(requireProject(projectName), trackName).id
+
+/** Play the main pattern for a few seconds so a demo is heard, then stop. */
+let demoTimer: ReturnType<typeof setTimeout> | undefined
+export async function playDemo(seconds = 6, songMode = false) {
+  const { play, stop } = await import('../state/actions')
+  clearTimeout(demoTimer)
+  stop()
+  await play(songMode)
+  demoTimer = setTimeout(stop, seconds * 1000)
+}
+
+export function selectTrackByName(projectName: string, name: string) {
+  requireProject(projectName)
+  const state = useStudio.getState()
+  const track = state.project.tracks.find(item => item.name === name)
+  if (track) selectTrack(track)
+}
+
+export function clearNotes(projectName: string, patternName: string, trackName: string) {
+  writeNotes(projectName, patternName, trackName, [], 'Clear notes')
+}

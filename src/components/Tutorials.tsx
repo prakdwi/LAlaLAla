@@ -52,6 +52,8 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
     setBusy(index)
     try {
       stop()
+      // switch screens first: navigation stops playback, and many demos end by playing
+      if (step.goTo) navigate(WHERE[step.goTo].path)
       await step.run()
       mark(index)
       notify(`Done: ${step.title}`)
@@ -96,40 +98,52 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
         They are not transcriptions of the songs.
       </p>
       <div className="tutorial-layout">
-        <div className="tutorial-list" role="tablist" aria-label="Songs">
-          {TUTORIALS.map(item => {
-            const count = (progress[item.id] ?? []).length
-            return (
-              <button
-                key={item.id}
-                role="tab"
-                aria-selected={item.id === tutorial.id}
-                className={`tutorial-card ${item.id === tutorial.id ? 'selected' : ''}`}
-                onClick={() => setSelected(item.id)}
-              >
-                <strong>{item.song}</strong>
-                <span>{item.artist}</span>
-                <small>
-                  {count}/{item.steps.length} steps
-                </small>
-                <i className="tutorial-progress" style={{ width: `${(count / item.steps.length) * 100}%` }} />
-              </button>
-            )
-          })}
+        <div className="tutorial-list" role="tablist" aria-label="Lessons">
+          {(
+            [
+              ['tools', 'Learn the tools'],
+              ['songs', 'Song style studies'],
+            ] as const
+          ).map(([section, heading]) => (
+            <div className="tutorial-section" key={section}>
+              <span className="eyebrow">{heading}</span>
+              {TUTORIALS.filter(item => item.section === section).map(item => {
+                const count = (progress[item.id] ?? []).length
+                return (
+                  <button
+                    key={item.id}
+                    role="tab"
+                    aria-selected={item.id === tutorial.id}
+                    className={`tutorial-card ${item.id === tutorial.id ? 'selected' : ''}`}
+                    onClick={() => setSelected(item.id)}
+                  >
+                    <strong>{item.title}</strong>
+                    <span>{item.subtitle}</span>
+                    <small>
+                      {count}/{item.steps.length} steps
+                    </small>
+                    <i className="tutorial-progress" style={{ width: `${(count / item.steps.length) * 100}%` }} />
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </div>
         <div className="tutorial-body">
           <div className="tutorial-head">
             <div>
-              <span className="eyebrow">IN THE STYLE OF</span>
+              <span className="eyebrow">{tutorial.section === 'songs' ? 'IN THE STYLE OF' : 'TOOL LESSON'}</span>
               <h2>
-                {tutorial.song} <small>— {tutorial.artist}</small>
+                {tutorial.title} <small>— {tutorial.subtitle}</small>
               </h2>
             </div>
             <div className="inline-actions">
-              <button className="play-button" disabled={!ready || busy >= 0} onClick={() => void buildAll(tutorial)}>
-                <Wand2 size={14} />
-                {busy === 99 ? 'Building…' : 'Build the whole beat'}
-              </button>
+              {tutorial.section === 'songs' && (
+                <button className="play-button" disabled={!ready || busy >= 0} onClick={() => void buildAll(tutorial)}>
+                  <Wand2 size={14} />
+                  {busy === 99 ? 'Building…' : 'Build the whole beat'}
+                </button>
+              )}
               {active && (
                 <button
                   onClick={() => {
@@ -143,20 +157,22 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
               )}
             </div>
           </div>
-          <dl className="tutorial-facts">
-            <div>
-              <dt>Tempo</dt>
-              <dd>{tutorial.tempo}</dd>
-            </div>
-            <div>
-              <dt>Feel</dt>
-              <dd>{tutorial.feel}</dd>
-            </div>
-            <div>
-              <dt>Key</dt>
-              <dd>{tutorial.key}</dd>
-            </div>
-          </dl>
+          {tutorial.tempo && (
+            <dl className="tutorial-facts">
+              <div>
+                <dt>Tempo</dt>
+                <dd>{tutorial.tempo}</dd>
+              </div>
+              <div>
+                <dt>Feel</dt>
+                <dd>{tutorial.feel}</dd>
+              </div>
+              <div>
+                <dt>Key</dt>
+                <dd>{tutorial.key}</dd>
+              </div>
+            </dl>
+          )}
           <p>{tutorial.summary}</p>
           <div className="listen-for">
             <strong>
@@ -168,8 +184,8 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
               ))}
             </ul>
           </div>
-          <ReferencePanel tutorial={tutorial} active={active} navigate={navigate} />
-          {!active && done.size > 0 && (
+          {tutorial.reference && <ReferencePanel tutorial={tutorial} active={active} navigate={navigate} />}
+          {tutorial.projectName && !active && done.size > 0 && (
             <p className="tutorial-warning">
               This lesson works on the "{tutorial.projectName}" project. Run step 1 again or switch to it from the
               sidebar's project list.
@@ -204,9 +220,16 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
                   ))}
                   {step.tip && <p className="step-tip">Tip: {step.tip}</p>}
                   {step.run && (
-                    <button className="do-step" disabled={!ready || busy >= 0} onClick={() => void runStep(index)}>
+                    <button
+                      className="do-step"
+                      data-step={index}
+                      disabled={!ready || busy >= 0}
+                      onClick={() => void runStep(index)}
+                    >
                       <Wand2 size={12} />
-                      {busy === index ? 'Working…' : `Do this step: ${step.runLabel ?? step.title}`}
+                      {busy === index
+                        ? 'Working…'
+                        : `${tutorial.section === 'tools' ? 'Demo' : 'Do this step'}: ${step.runLabel ?? step.title}`}
                     </button>
                   )}
                 </li>
@@ -259,16 +282,16 @@ function ReferencePanel({
         <Headphones size={13} /> Play along with the original
       </strong>
       <p>
-        Search YouTube for the official audio of {tutorial.song} by {tutorial.artist} and paste the link. It loads as
-        the backing video in the Jam room, where you can tap the tempo to match it and sample your own copy with Connect
-        tab audio and Sample IN → OUT. Chop it onto the pads and rebuild the beat around the real record. Clear samples
-        before releasing anything.
+        Search YouTube for the official audio of {tutorial.reference!.song} by {tutorial.reference!.artist} and paste
+        the link. It loads as the backing video in the Jam room, where you can tap the tempo to match it and sample your
+        own copy with Connect tab audio and Sample IN → OUT. Chop it onto the pads and rebuild the beat around the real
+        record. Clear samples before releasing anything.
       </p>
       <div className="reference-row">
         <Link size={14} />
         <input
           aria-label="Original song YouTube link"
-          placeholder={`YouTube link for ${tutorial.song}`}
+          placeholder={`YouTube link for ${tutorial.reference!.song}`}
           value={url}
           onChange={event => setUrl(event.target.value)}
         />

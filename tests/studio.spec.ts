@@ -480,3 +480,25 @@ test('Jam layout fits desktop and mobile and returns to Studio without a reload'
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Jam room' })).toBeVisible()
 })
+
+test('Tutorials: tool lessons and song studies, demos build and play', async ({ page }) => {
+  await page.getByRole('link', { name: 'Tutorials' }).click()
+  await expect(page.locator('.tutorial-section > .eyebrow')).toHaveText(['Learn the tools', 'Song style studies'])
+  await expect(page.locator('.tutorial-card')).toHaveCount(7)
+  // piano roll lesson: create the demo, then draw chords; it opens the Jam room and plays
+  await page.getByRole('tab', { name: /The piano roll/ }).click()
+  await page.locator('.do-step').nth(0).click()
+  await expect(page).toHaveURL(/\/jam$/)
+  await expect(page.getByRole('heading', { name: /Piano roll/ })).toBeVisible()
+  await page.getByRole('link', { name: 'Tutorials' }).click()
+  await page.getByRole('tab', { name: /The piano roll/ }).click()
+  await page.locator('.do-step').nth(1).click()
+  await expect(page.locator('.mpc-center .piano-note')).toHaveCount(12)
+  await expect(page.getByRole('button', { name: 'Stop playback', exact: true })).toBeVisible()
+  // song lesson: build the whole beat
+  await page.getByRole('link', { name: 'Tutorials' }).click()
+  await page.getByRole('tab', { name: /1985/ }).click()
+  await page.getByRole('button', { name: 'Build the whole beat' }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Built', { timeout: 20000 })
+  await expect(page.getByLabel('Original song YouTube link')).toBeVisible()
+})
