@@ -250,6 +250,15 @@ const niagara: Tutorial = {
       },
     },
     {
+      title: 'Bring in the original and match it',
+      where: 'jam',
+      body: [
+        'Paste the official link into "Play along with the original" above. In the Jam room, play it and tap the tempo along with the record until the click lines up.',
+        'Connect tab audio, set IN and OUT around a few seconds of the melody, and press Sample IN → OUT. Chop it with Threshold and play the chops against our drums. Swap our Bell for your chop when it sits right.',
+      ],
+      tip: 'Match by ear first: hum the bass note of the original and pitch the 808 pad until it agrees.',
+    },
+    {
       title: 'Arrange: intro, drop, break, drop',
       where: 'studio',
       body: [
@@ -694,6 +703,14 @@ const nineteen85: Tutorial = {
           [41, 6.5, 1],
         ])
       },
+    },
+    {
+      title: 'Loop the original the Madlib way',
+      where: 'jam',
+      body: [
+        'Paste the official link into "Play along with the original" above and tap the tempo along with it. Sample two bars with Sample IN → OUT and keep them as one long pad: no chopping, just a loop.',
+        'Trigger the loop pad on step 1 of each bar, set Quantize Off, and play our dusty drums over it by hand.',
+      ],
     },
     {
       title: 'Arrange by subtraction',

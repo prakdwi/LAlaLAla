@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { BookOpen, Check, CircleDot, Headphones, Layers, FlaskConical, Play, Wand2 } from 'lucide-react'
+import { BookOpen, Check, CircleDot, Headphones, Layers, FlaskConical, Link, Play, Wand2 } from 'lucide-react'
 import { TUTORIALS, type Tutorial } from '../tutorials/songs'
 import { notify, reportError, useStudio } from '../state/store'
 import { play, stop } from '../state/actions'
+import { parseYouTubeUrl } from '../state/jam'
+import { tapTempo } from '../state/mpc'
 
 const STORE_KEY = 'lalala-tutorial-progress'
 const readProgress = (): Record<string, number[]> => {
@@ -166,6 +168,7 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
               ))}
             </ul>
           </div>
+          <ReferencePanel tutorial={tutorial} active={active} navigate={navigate} />
           {!active && done.size > 0 && (
             <p className="tutorial-warning">
               This lesson works on the "{tutorial.projectName}" project. Run step 1 again or switch to it from the
@@ -213,5 +216,78 @@ export function Tutorials({ navigate }: { navigate: (path: string) => void }) {
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * Bring the original record into the session: load it as the Jam backing video, tap the tempo
+ * to match, then sample and chop it with the video sampler.
+ */
+function ReferencePanel({
+  tutorial,
+  active,
+  navigate,
+}: {
+  tutorial: Tutorial
+  active: boolean
+  navigate: (path: string) => void
+}) {
+  const { project, edit } = useStudio()
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  const [tapped, setTapped] = useState<number | null>(null)
+  const load = () => {
+    const parsed = parseYouTubeUrl(url)
+    if (!parsed) {
+      setError('Paste a YouTube link (watch, share, or Shorts).')
+      return
+    }
+    if (!active) {
+      setError(`Run step 1 first so the "${tutorial.projectName}" project is open.`)
+      return
+    }
+    setError('')
+    edit('Reference video', draft => {
+      draft.jamSource = parsed
+    })
+    notify('Original loaded in the Jam room. Connect tab audio to sample it.')
+    navigate('/jam')
+  }
+  return (
+    <div className="reference-panel">
+      <strong>
+        <Headphones size={13} /> Play along with the original
+      </strong>
+      <p>
+        Search YouTube for the official audio of {tutorial.song} by {tutorial.artist} and paste the link. It loads as
+        the backing video in the Jam room, where you can tap the tempo to match it and sample your own copy with Connect
+        tab audio and Sample IN → OUT. Chop it onto the pads and rebuild the beat around the real record. Clear samples
+        before releasing anything.
+      </p>
+      <div className="reference-row">
+        <Link size={14} />
+        <input
+          aria-label="Original song YouTube link"
+          placeholder={`YouTube link for ${tutorial.song}`}
+          value={url}
+          onChange={event => setUrl(event.target.value)}
+        />
+        <button onClick={load} disabled={!url.trim()}>
+          Load in Jam room
+        </button>
+        <button
+          onClick={() => setTapped(tapTempo())}
+          title="Tap along with the record to set the project tempo"
+          disabled={!active}
+        >
+          Tap tempo {tapped ?? (active ? project.bpm : '')}
+        </button>
+      </div>
+      {error && (
+        <p className="tutorial-warning" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   )
 }

@@ -1727,3 +1727,54 @@ li.done .step-check {
 .range-control .knob-tip {
   display: flex;
 }
+.reference-panel {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #5b9bd5;
+  border-radius: 8px;
+  background: #1d2430;
+}
+.reference-panel strong {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  color: #8fbbe6;
+}
+.reference-panel p {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: #d4d0c0;
+}
+.reference-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+.reference-row input {
+  flex: 1;
+  min-width: 220px;
+  font: 12px var(--mono);
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #23272a;
+  color: #e8e3d2;
+}
+.reference-row button {
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #23272a;
+  color: #e8e3d2;
+  cursor: pointer;
+}
+.reference-row button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
