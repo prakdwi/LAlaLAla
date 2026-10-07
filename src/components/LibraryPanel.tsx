@@ -47,59 +47,66 @@ export function LibraryPanel({ onOpenLab }: { onOpenLab: () => void }) {
           const Icon = ICON[item.kind]
           return (
             <div className={`library-item kind-${item.kind}`} key={item.id}>
-              <Icon size={14} />
-              {editing === item.id ? (
-                <input
-                  aria-label="Library item name"
-                  autoFocus
-                  defaultValue={item.name}
-                  maxLength={32}
-                  onBlur={event => {
-                    void renameLibraryItem(item.id, event.target.value)
-                    setEditing('')
-                  }}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-                    if (event.key === 'Escape') setEditing('')
-                  }}
-                />
-              ) : (
-                <button
-                  className="library-name"
-                  onDoubleClick={() => setEditing(item.id)}
-                  title="Double-click to rename"
+              <div className="library-item-top">
+                <Icon size={13} aria-hidden="true" />
+                {editing === item.id ? (
+                  <input
+                    aria-label="Library item name"
+                    autoFocus
+                    defaultValue={item.name}
+                    maxLength={32}
+                    onBlur={event => {
+                      void renameLibraryItem(item.id, event.target.value)
+                      setEditing('')
+                    }}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+                      if (event.key === 'Escape') setEditing('')
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="library-name"
+                    onDoubleClick={() => setEditing(item.id)}
+                    title={`${item.name}. Double-click to rename`}
+                  >
+                    {item.name}
+                  </button>
+                )}
+              </div>
+              <div className="library-item-bottom">
+                <small>
+                  {item.kind === 'sample'
+                    ? `${item.duration.toFixed(2)}s · ${item.slices.length || 1} slices`
+                    : item.kind === 'kit'
+                      ? `${item.pads.length} pads`
+                      : 'synth patch'}
+                </small>
+                <IconButton
+                  title={canLoadHere(item) ? `Load onto ${track?.name}` : 'Load as a new track'}
+                  onClick={() =>
+                    void loadLibraryItem(item, canLoadHere(item) ? { trackId: track!.id } : { newTrack: true })
+                  }
                 >
-                  {item.name}
-                  <small>
-                    {item.kind === 'sample'
-                      ? `${item.duration.toFixed(2)} s / ${item.slices.length || 1} slices`
-                      : item.kind === 'kit'
-                        ? `${item.pads.length} pads`
-                        : 'synth patch'}
-                  </small>
-                </button>
-              )}
-              <IconButton
-                title={canLoadHere(item) ? `Load onto ${track?.name}` : 'Load as a new track'}
-                onClick={() =>
-                  void loadLibraryItem(item, canLoadHere(item) ? { trackId: track!.id } : { newTrack: true })
-                }
-              >
-                <Download size={13} />
-              </IconButton>
-              {canLoadHere(item) && (
-                <IconButton title="Load as a new track" onClick={() => void loadLibraryItem(item, { newTrack: true })}>
-                  <Plus size={13} />
+                  <Download size={12} />
                 </IconButton>
-              )}
-              <IconButton
-                title="Remove from library"
-                onClick={() => {
-                  if (confirm(`Remove "${item.name}" from the library?`)) void deleteLibraryItem(item.id)
-                }}
-              >
-                <Trash2 size={13} />
-              </IconButton>
+                {canLoadHere(item) && (
+                  <IconButton
+                    title="Load as a new track"
+                    onClick={() => void loadLibraryItem(item, { newTrack: true })}
+                  >
+                    <Plus size={12} />
+                  </IconButton>
+                )}
+                <IconButton
+                  title="Remove from library"
+                  onClick={() => {
+                    if (confirm(`Remove "${item.name}" from the library?`)) void deleteLibraryItem(item.id)
+                  }}
+                >
+                  <Trash2 size={12} />
+                </IconButton>
+              </div>
             </div>
           )
         })}

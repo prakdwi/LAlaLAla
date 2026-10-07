@@ -1788,3 +1788,98 @@ li.done .step-check {
   margin-top: 4px;
   color: #3a3a2e;
 }
+
+/* Library items in the narrow sidebar: name on its own row, details + actions below */
+.sidebar .library-filters {
+  gap: 3px;
+}
+.sidebar .library-filters button {
+  height: auto;
+  min-width: 0;
+  padding: 4px 0;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+.sidebar .library-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px 6px;
+}
+.library-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.library-item-top svg {
+  flex: none;
+  color: var(--muted);
+}
+.sidebar .library-item .library-name {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  font: 12px/1.3 var(--mono);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.sidebar .library-item input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+}
+.library-item-bottom {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.library-item-bottom small {
+  flex: 1;
+  min-width: 0;
+  font: 9px var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar .library-item .icon-button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.sidebar .library-empty {
+  height: auto;
+}
+.sidebar .library-item .library-name {
+  display: block;
+  justify-content: flex-start;
+  min-height: 0;
+}
+.sidebar .library-item .icon-button,
+.sidebar .library-filters button {
+  min-height: 0;
+}
+.sidebar .library-empty {
+  min-height: 0;
+  justify-content: flex-start;
+  text-align: left;
+}
+.sidebar .library-item {
+  align-items: stretch;
+  overflow: hidden;
+}
+.library-item-top,
+.library-item-bottom {
+  width: 100%;
+}
