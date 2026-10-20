@@ -29,7 +29,7 @@ export type NoteSpec = [number, number, number, number?]
 const SAMPLE_RATE = 44100
 
 /** Renders the sounds back to back into one sample so each pad is one drum. */
-function renderKit(sounds: KitSound[]) {
+export function renderKit(sounds: KitSound[]) {
   const parts = sounds.map(sound =>
     renderDrum(sound.kind, { ...DRUM_DEFAULTS[sound.kind], ...sound.params }, SAMPLE_RATE),
   )

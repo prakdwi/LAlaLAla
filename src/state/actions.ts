@@ -45,7 +45,11 @@ export function recordHit(track: Track, pad: Pad, velocity: number, beat: number
   let step: number
   let microTimingMs = 0
   if (grid > 0) {
-    step = Math.round(local / grid) * grid * 4
+    // quantize strength: move the hit part of the way to the grid, the rest stays as microtiming
+    const snapped = Math.round(local / grid) * grid
+    const placed = local + (snapped - local) * state.quantizeStrength
+    step = Math.round(placed * 4)
+    microTimingMs = Math.max(-50, Math.min(50, (placed * 4 - step) * stepDuration(state.project.bpm) * 1000))
   } else {
     step = Math.round(local * 4)
     microTimingMs = Math.max(-50, Math.min(50, (local * 4 - step) * stepDuration(state.project.bpm) * 1000))
@@ -141,7 +145,8 @@ export async function noteOn(track: Track, pitch: number, velocity = 1) {
       const grid = state.mpc.quantize
       const raw = hitBeat(engine.context!.currentTime)
       const local = ((raw % totalBeats) + totalBeats) % totalBeats
-      const start = grid > 0 ? (Math.round(local / grid) * grid) % totalBeats : Math.round(local * 64) / 64
+      const snapped = grid > 0 ? Math.round(local / grid) * grid : local
+      const start = (Math.round((local + (snapped - local) * state.quantizeStrength) * 64) / 64) % totalBeats
       const noteId = uid()
       state.edit(
         'Record note',
@@ -157,7 +162,7 @@ export async function noteOn(track: Track, pitch: number, velocity = 1) {
       return
     }
     const noteId = uid()
-    const quantized = state.quantize ? snapBeat(beat, 0.25) : beat
+    const quantized = state.quantize ? beat + (snapBeat(beat, 0.25) - beat) * state.quantizeStrength : beat
     let clipId = ''
     state.edit(
       'Record note',
@@ -228,8 +233,9 @@ export function handleMidi(message: MidiMessage) {
       void import('./mpc').then(({ hitPad }) =>
         hitPad(track, (((message.pitch - 36) % 16) + 16) % 16, message.velocity),
       )
-    } else void noteOn(track, message.pitch, message.velocity)
-  } else if (message.type === 'noteoff' && track.kind !== 'drums') noteOff(track, message.pitch)
+    } else void import('./performance').then(({ keyOn }) => keyOn(track, message.pitch, message.velocity))
+  } else if (message.type === 'noteoff' && track.kind !== 'drums')
+    void import('./performance').then(({ keyOff }) => keyOff(track, message.pitch))
 }
 
 export async function enableMidi() {
@@ -312,6 +318,8 @@ export function stop() {
           fadeIn: 0.005,
           fadeOut: 0.01,
           pitchSemitones: 0,
+          sourceBpm: project.bpm,
+          followTempo: false,
         }
         project.clips.push(clip)
       })

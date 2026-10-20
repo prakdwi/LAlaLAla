@@ -75,7 +75,7 @@ export async function saveSampleToLibrary(name: string, bufferId: string, slices
   return item
 }
 
-export async function saveKitToLibrary(track: Track, name = track.name) {
+export async function saveKitToLibrary(track: Track, name = track.name, tags: string[] = []) {
   if (!engine.buffers.has(track.sampleBufferId)) {
     reportError('That kit has no audio loaded.')
     return
@@ -91,24 +91,24 @@ export async function saveKitToLibrary(track: Track, name = track.name) {
       id: uid(),
       effects: pad.effects.map(effect => ({ ...effect, id: uid() })),
     })),
-    tags: [],
+    tags,
   }
   await put(item, engine.blobs)
-  notify(`Saved kit "${item.name}" to the library.`)
+  if (!tags.length) notify(`Saved kit "${item.name}" to the library.`)
   return item
 }
 
-export async function saveSynthToLibrary(name: string, synth: SynthParams) {
+export async function saveSynthToLibrary(name: string, synth: SynthParams, tags: string[] = []) {
   const item: LibraryItem = {
     id: uid(),
     kind: 'synth',
     name: name.trim() || 'Patch',
     createdAt: Date.now(),
     synth: { ...synth },
-    tags: [],
+    tags,
   }
   await put(item, engine.blobs)
-  notify(`Saved patch "${item.name}" to the library.`)
+  if (!tags.length) notify(`Saved patch "${item.name}" to the library.`)
   return item
 }
 
@@ -216,10 +216,34 @@ export async function loadLibraryItem(item: LibraryItem, options: { trackId?: st
   }
 }
 
-/** Put a library sample onto one pad of a kit (the pad plays the whole sample). */
+/** Put a library sample onto one pad of a kit: the pad gets its own buffer and plays the whole sample. */
 export async function loadSampleToPad(item: Extract<LibraryItem, { kind: 'sample' }>, trackId: string, padId: string) {
-  // A pad is a region of its track's sample, so a different sample needs its own track. Offer the
-  // nearest equivalent: load the sample onto a new kit with pad 1 = whole sample.
-  void padId
-  await loadLibraryItem(item, { trackId, newTrack: true })
+  if (!(await ensureAudio(item.bufferId))) {
+    reportError(`The audio for "${item.name}" is missing from storage.`)
+    return
+  }
+  const buffer = engine.buffers.get(item.bufferId)!
+  const state = useStudio.getState()
+  state.edit('Load sample onto pad', draft => {
+    const pad = draft.tracks.find(track => track.id === trackId)?.pads.find(candidate => candidate.id === padId)
+    if (!pad) return
+    pad.bufferId = item.bufferId
+    pad.startTime = 0
+    pad.endTime = buffer.duration
+    pad.name = item.name.slice(0, 12)
+    pad.reverse = false
+  })
+  const track = useStudio.getState().project.tracks.find(candidate => candidate.id === trackId)
+  const index = track?.pads.findIndex(pad => pad.id === padId) ?? -1
+  notify(`"${item.name}" is on pad ${index + 1} of ${track?.name ?? 'the kit'}.`)
+}
+
+/** Decode a file and put it on one pad. */
+export async function loadFileToPad(file: File, trackId: string, padId: string) {
+  const bufferId = uid()
+  const buffer = await engine.decode(bufferId, file)
+  const item = await saveSampleToLibrary(file.name.replace(/\.[^.]+$/, ''), bufferId, [], ['pad'])
+  if (!item) return
+  void buffer
+  await loadSampleToPad(item, trackId, padId)
 }

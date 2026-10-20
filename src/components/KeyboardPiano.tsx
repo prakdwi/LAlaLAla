@@ -1,14 +1,18 @@
 import { Keyboard, Piano } from 'lucide-react'
 import { useStudio } from '../state/store'
-import { noteOff, noteOn } from '../state/actions'
+import { keyOff, keyOn } from '../state/performance'
+import { inScale, keyName } from '../state/scale'
 import { isBlackKey, noteName, PIANO_KEYS } from '../audio/midi'
 import type { Track } from '../state/types'
+import { ChordModePicker } from './KeyPicker'
 
 const KEY_FOR_OFFSET = Object.fromEntries(Object.entries(PIANO_KEYS).map(([key, offset]) => [offset, key]))
 
 /** Two-octave on-screen keyboard for keys and synth tracks. The computer keyboard mirrors it. */
 export function KeyboardPiano({ track }: { track: Track }) {
-  const { noteFlashes, ready, edit, keyboardOctave: octave } = useStudio()
+  const { noteFlashes, ready, edit, keyboardOctave: octave, project, scaleLock, chordMode } = useStudio()
+  const key = project.key
+  const dim = (pitch: number) => (scaleLock || chordMode !== 'off') && !inScale(key, pitch)
   const setOctave = (value: number) => useStudio.setState({ keyboardOctave: value })
   const base = octave * 12 + 12
   const pitches = Array.from({ length: 25 }, (_, index) => base + index)
@@ -42,6 +46,7 @@ export function KeyboardPiano({ track }: { track: Track }) {
               <span className="eyebrow">{noteName(track.rootNote)}</span>
             </label>
           )}
+          <ChordModePicker />
           <button onClick={() => setOctave(Math.max(0, octave - 1))} aria-label="Octave down">
             -
           </button>
@@ -55,16 +60,16 @@ export function KeyboardPiano({ track }: { track: Track }) {
         {whites.map(pitch => (
           <button
             key={pitch}
-            className={`white-key ${noteFlashes[`${track.id}:${pitch}`] ? 'hit' : ''}`}
+            className={`white-key ${noteFlashes[`${track.id}:${pitch}`] ? 'hit' : ''} ${dim(pitch) ? 'off-scale' : ''}`}
             aria-label={`Key ${noteName(pitch)}`}
             disabled={!ready}
             onPointerDown={event => {
               event.preventDefault()
-              void noteOn(track, pitch, 0.9)
+              void keyOn(track, pitch, 0.9)
             }}
-            onPointerUp={() => noteOff(track, pitch)}
-            onPointerLeave={() => noteOff(track, pitch)}
-            onPointerCancel={() => noteOff(track, pitch)}
+            onPointerUp={() => keyOff(track, pitch)}
+            onPointerLeave={() => keyOff(track, pitch)}
+            onPointerCancel={() => keyOff(track, pitch)}
           >
             <small>{noteName(pitch)}</small>
             <kbd>{KEY_FOR_OFFSET[pitch - base]?.toUpperCase() ?? ''}</kbd>
@@ -75,17 +80,17 @@ export function KeyboardPiano({ track }: { track: Track }) {
           return (
             <button
               key={pitch}
-              className={`black-key ${noteFlashes[`${track.id}:${pitch}`] ? 'hit' : ''}`}
+              className={`black-key ${noteFlashes[`${track.id}:${pitch}`] ? 'hit' : ''} ${dim(pitch) ? 'off-scale' : ''}`}
               style={{ left: `calc(${(whiteIndex / whites.length) * 100}% - 1.6%)` }}
               aria-label={`Key ${noteName(pitch)}`}
               disabled={!ready}
               onPointerDown={event => {
                 event.preventDefault()
-                void noteOn(track, pitch, 0.9)
+                void keyOn(track, pitch, 0.9)
               }}
-              onPointerUp={() => noteOff(track, pitch)}
-              onPointerLeave={() => noteOff(track, pitch)}
-              onPointerCancel={() => noteOff(track, pitch)}
+              onPointerUp={() => keyOff(track, pitch)}
+              onPointerLeave={() => keyOff(track, pitch)}
+              onPointerCancel={() => keyOff(track, pitch)}
             >
               <kbd>{KEY_FOR_OFFSET[pitch - base]?.toUpperCase() ?? ''}</kbd>
             </button>
@@ -96,7 +101,10 @@ export function KeyboardPiano({ track }: { track: Track }) {
         <span>
           <Keyboard size={12} /> A S D F G H J K L for white keys, W E T Y U O P for sharps. Z / X shift octave.
         </span>
-        <span>{track.kind === 'synth' ? 'POLYPHONIC SYNTH' : 'PITCHED SAMPLER'}</span>
+        <span>
+          {scaleLock ? `LOCKED TO ${keyName(key).toUpperCase()}` : 'FREE'}
+          {chordMode !== 'off' ? ' / CHORDS' : ''} · {track.kind === 'synth' ? 'POLYPHONIC SYNTH' : 'PITCHED SAMPLER'}
+        </span>
       </div>
     </section>
   )

@@ -3,6 +3,8 @@ import { engine } from '../audio/engine'
 import { useStudio } from '../state/store'
 import type { AudioClip } from '../state/types'
 import { Range } from './Controls'
+import { detectBpm } from '../audio/tempo'
+import { stretchRatio } from '../audio/stretch'
 
 /** Waveform view and trim controls for an audio clip. */
 export function AudioClipEditor({ clip }: { clip: AudioClip }) {
@@ -11,6 +13,19 @@ export function AudioClipEditor({ clip }: { clip: AudioClip }) {
   const buffer = engine.buffers.get(clip.bufferId)
   const track = project.tracks.find(item => item.id === clip.trackId)
   const seconds = (clip.length * 60) / project.bpm
+  const ratio = clip.followTempo && clip.sourceBpm ? stretchRatio(clip.sourceBpm, project.bpm) : 1
+  const detect = () => {
+    if (!buffer) return
+    const bpm = detectBpm(buffer.getChannelData(0), buffer.sampleRate)
+    if (!bpm) {
+      useStudio.setState({ error: 'Could not find a steady tempo in this clip. Type the BPM instead.' })
+      return
+    }
+    update('Detect tempo', target => {
+      target.sourceBpm = bpm
+    })
+    useStudio.setState({ notice: `Detected ${bpm} BPM for "${clip.name}".` })
+  }
   const update = (label: string, change: (target: AudioClip) => void, key?: string) =>
     edit(
       label,
@@ -182,11 +197,62 @@ export function AudioClipEditor({ clip }: { clip: AudioClip }) {
           }
         />
       </div>
+      <div className="trim-inputs clip-tempo">
+        <label className="check-label">
+          <input
+            type="checkbox"
+            aria-label="Follow tempo"
+            checked={Boolean(clip.followTempo)}
+            onChange={event =>
+              update('Follow tempo', target => {
+                target.followTempo = event.target.checked
+                target.sourceBpm ||= project.bpm
+              })
+            }
+          />
+          Follow tempo
+        </label>
+        <label>
+          Source BPM
+          <input
+            aria-label="Source BPM"
+            type="number"
+            min={40}
+            max={240}
+            step={0.1}
+            value={clip.sourceBpm ?? ''}
+            placeholder={String(project.bpm)}
+            onChange={event =>
+              update(
+                'Source BPM',
+                target => {
+                  target.sourceBpm = Math.max(40, Math.min(240, Number(event.target.value) || project.bpm))
+                },
+                `source-bpm-${clip.id}`,
+              )
+            }
+          />
+        </label>
+        <button disabled={!buffer} onClick={detect} title="Guess the clip's tempo from its transients">
+          Detect
+        </button>
+        <span className="eyebrow">
+          {clip.followTempo
+            ? ratio === 1
+              ? 'AT SOURCE TEMPO'
+              : `STRETCHED ${Math.round(ratio * 100)}% (${clip.sourceBpm} to ${project.bpm} BPM)`
+            : 'PLAYS AT RECORDED SPEED'}
+        </span>
+      </div>
       <div className="section-foot">
         <span>
           {seconds.toFixed(2)} SEC AT {project.bpm} BPM
         </span>
-        <span>Pitch changes speed; clips are not time-stretched.</span>
+        <span>
+          {clip.followTempo
+            ? 'Follow tempo keeps the pitch and stretches the audio to the song tempo.'
+            : 'Pitch changes speed. Turn on Follow tempo to stretch instead.'}
+        </span>
       </div>
     </section>
   )

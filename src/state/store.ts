@@ -3,6 +3,7 @@ import { applyPatches, enablePatches, produceWithPatches, type Draft, type Patch
 import type { LibraryItem, Project, ProjectSummary } from './types'
 import { makeProject } from './defaults'
 import { defaultMpc, type MpcState } from './mpc'
+import type { ChordVoicing } from './scale'
 
 enablePatches()
 type Command = { label: string; forward: Patch[]; backward: Patch[]; key?: string; time: number }
@@ -35,6 +36,12 @@ export type StudioState = {
   /** timeline zoom in pixels per beat */
   zoom: number
   quantize: boolean
+  /** how far recorded notes and hits move toward the grid, 0..1 */
+  quantizeStrength: number
+  /** piano roll, on-screen keyboard and computer keys snap to the project key */
+  scaleLock: boolean
+  /** one key or click plays a diatonic chord; 'off' plays single notes */
+  chordMode: ChordVoicing | 'off'
   keyboardOctave: number
   showShortcuts: boolean
   mpc: MpcState
@@ -47,10 +54,31 @@ export type StudioState = {
   midiStatus: 'idle' | 'unsupported' | 'denied' | 'ready'
   midiInputs: { id: string; name: string }[]
   clockKind: 'worklet' | 'interval'
+  /** the backup reminder is showing */
+  backupDue: boolean
+  /** first-run coach: which step the user is on, -1 when hidden */
+  tourStep: number
   edit: (label: string, change: (project: Draft<Project>) => void, key?: string) => void
   undo: () => void
   redo: () => void
   hydrate: (project: Project) => void
+}
+
+function readPreference(key: string, fallback: boolean) {
+  try {
+    const stored = localStorage.getItem(key)
+    return stored === null ? fallback : stored === 'true'
+  } catch {
+    return fallback
+  }
+}
+export function setScaleLock(enabled: boolean) {
+  useStudio.setState({ scaleLock: enabled })
+  try {
+    localStorage.setItem('lalala-scale-lock', String(enabled))
+  } catch {
+    /* preference is per-session only */
+  }
 }
 
 const initial = makeProject()
@@ -78,6 +106,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   notice: '',
   zoom: 24,
   quantize: true,
+  quantizeStrength: 1,
+  scaleLock: readPreference('lalala-scale-lock', true),
+  chordMode: 'off',
   keyboardOctave: 4,
   showShortcuts: false,
   mpc: defaultMpc(),
@@ -90,6 +121,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   midiStatus: 'idle',
   midiInputs: [],
   clockKind: 'interval',
+  backupDue: false,
+  tourStep: -1,
   edit: (label, change, key) => {
     const state = get()
     const [project, forward, backward] = produceWithPatches(state.project, draft => {

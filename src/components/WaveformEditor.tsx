@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Save, Scissors, Upload, ZoomIn, ZoomOut } from 'lucide-react'
-import { saveKitToLibrary } from '../db/library'
+import { loadFileToPad, saveKitToLibrary } from '../db/library'
 import { engine } from '../audio/engine'
 import { detectSlices } from '../audio/slicing'
 import { uid } from '../state/defaults'
@@ -13,7 +13,30 @@ export function WaveformEditor() {
   const { project, selectedTrackId, selectedPadId, edit, ready } = useStudio()
   const track = project.tracks.find(item => item.id === selectedTrackId)!
   const pad = track.pads.find(item => item.id === selectedPadId) ?? track.pads[0]
-  const buffer = engine.buffers.get(track.sampleBufferId)
+  const ownSample = Boolean(pad.bufferId)
+  const kitBuffer = engine.buffers.get(track.sampleBufferId)
+  const buffer = ownSample ? engine.buffers.get(pad.bufferId!) : kitBuffer
+  const padPicker = useRef<HTMLInputElement>(null)
+  const useKitSample = () =>
+    edit('Use kit sample on pad', draft => {
+      const target = draft.tracks.find(item => item.id === track.id)?.pads.find(item => item.id === pad.id)
+      if (!target) return
+      delete target.bufferId
+      target.startTime = 0
+      target.endTime = kitBuffer?.duration ?? 0.6
+    })
+  const uploadToPad = async (file?: File) => {
+    if (!file) return
+    setLoading(true)
+    try {
+      await loadFileToPad(file, track.id, pad.id)
+    } catch {
+      reportError('This audio file could not be decoded. Try WAV, MP3, OGG, or M4A supported by your browser.')
+    } finally {
+      setLoading(false)
+      if (padPicker.current) padPicker.current.value = ''
+    }
+  }
   const canvas = useRef<HTMLCanvasElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const [zoom, setZoom] = useState(1)
@@ -77,10 +100,12 @@ export function WaveformEditor() {
         }
         context.stroke()
       }
-      for (const region of track.pads) {
-        context.fillStyle = '#71803b'
-        context.fillRect(x(region.startTime), height - 8, 1, 8)
-      }
+      if (!ownSample)
+        for (const region of track.pads) {
+          if (region.bufferId) continue
+          context.fillStyle = '#71803b'
+          context.fillRect(x(region.startTime), height - 8, 1, 8)
+        }
       for (const [time, label] of [
         [pad.startTime, 'IN'],
         [pad.endTime, 'OUT'],
@@ -98,7 +123,7 @@ export function WaveformEditor() {
     observer.observe(element)
     draw()
     return () => observer.disconnect()
-  }, [buffer, pad, track.pads, viewStart, viewLength])
+  }, [buffer, pad, track.pads, viewStart, viewLength, ownSample])
   const slice = (audio: AudioBuffer, bufferId: string) => {
     const starts = detectSlices(
       audio.getChannelData(0),
@@ -147,7 +172,7 @@ export function WaveformEditor() {
       <div className="section-heading">
         <h2>Sample editor</h2>
         <div className="inline-actions">
-          <button disabled={!buffer || loading} onClick={() => buffer && slice(buffer, track.sampleBufferId)}>
+          <button disabled={!kitBuffer || loading} onClick={() => kitBuffer && slice(kitBuffer, track.sampleBufferId)}>
             <Scissors size={13} />
             Auto-slice
           </button>
@@ -155,6 +180,19 @@ export function WaveformEditor() {
             <Upload size={13} />
             {loading ? 'Decoding...' : 'Load sample'}
           </button>
+          <button
+            disabled={loading || !ready}
+            onClick={() => padPicker.current?.click()}
+            title={`Load a file onto pad ${track.pads.indexOf(pad) + 1} only, keeping the rest of the kit`}
+          >
+            <Upload size={13} />
+            To pad {track.pads.indexOf(pad) + 1}
+          </button>
+          {ownSample && (
+            <button onClick={useKitSample} title="Drop the pad's own sample and go back to a slice of the kit sample">
+              Use kit sample
+            </button>
+          )}
           <button
             disabled={!buffer || loading}
             onClick={() => void saveKitToLibrary(track)}
@@ -172,11 +210,19 @@ export function WaveformEditor() {
         hidden
         onChange={event => void upload(event.target.files?.[0])}
       />
+      <input
+        ref={padPicker}
+        type="file"
+        accept="audio/*,.wav,.mp3,.ogg,.m4a,.flac"
+        hidden
+        aria-label="Load sample onto pad"
+        onChange={event => void uploadToPad(event.target.files?.[0])}
+      />
       <div className="sample-info">
         <div>
-          <span className="sample-icon">WAV</span>
+          <span className="sample-icon">{ownSample ? 'PAD' : 'WAV'}</span>
           <strong>
-            {track.name}
+            {ownSample ? `${pad.name ?? `Pad ${track.pads.indexOf(pad) + 1}`} (own sample)` : track.name}
             <small>
               {buffer
                 ? `${buffer.sampleRate / 1000} kHz / ${buffer.numberOfChannels === 1 ? 'MONO' : 'STEREO'}`

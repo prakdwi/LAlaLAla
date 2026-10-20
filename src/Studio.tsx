@@ -12,6 +12,9 @@ import {
   Headphones,
   Keyboard,
   Layers,
+  HardDriveDownload,
+  Sparkles,
+  TriangleAlert,
   Mic,
   Music2,
   Package,
@@ -45,8 +48,6 @@ import {
   addClip,
   armInput,
   deleteClip,
-  noteOff,
-  noteOn,
   padKeys,
   play,
   seek,
@@ -57,6 +58,12 @@ import {
   toggleRecord,
 } from './state/actions'
 import { hitPad, stopRepeat } from './state/mpc'
+import { keyOff, keyOn, releaseKeys } from './state/performance'
+import { markBackedUp, snoozeBackup, watchBackup } from './state/backup'
+import { Coach, StarterPicker } from './components/Welcome'
+import { welcomeSeen } from './state/welcome'
+import { BROWSER_LABEL, support } from './support'
+import { keyName } from './state/scale'
 import {
   createProject,
   deleteProject,
@@ -93,12 +100,15 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
   const [exporting, setExporting] = useState('')
   const [exportMenu, setExportMenu] = useState(false)
   const [projectMenu, setProjectMenu] = useState(false)
+  const [starter, setStarter] = useState<'welcome' | 'picker' | ''>(() => (welcomeSeen() ? '' : 'welcome'))
+  const [supportNote, setSupportNote] = useState(support.missing.length > 0 && support.browser !== 'chromium')
   const importInput = useRef<HTMLInputElement>(null)
   const heldKeys = useRef(new Set<string>())
 
   useEffect(() => {
     void initializeSession()
     const unwatch = watchPersistence()
+    const unwatchBackup = watchBackup()
     let frame = 0
     const animate = () => {
       const now = performance.now()
@@ -201,7 +211,7 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
           event.preventDefault()
           const pitch = current.keyboardOctave * 12 + 12 + PIANO_KEYS[key]
           heldKeys.current.add(key)
-          void noteOn(track, pitch, 0.9)
+          void keyOn(track, pitch, 0.9)
           return
         }
         if (key === 'z' || key === 'x') {
@@ -224,10 +234,11 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
       heldKeys.current.delete(key)
       const current = useStudio.getState()
       const track = current.project.tracks.find(item => item.id === current.selectedTrackId)
-      if (track) noteOff(track, current.keyboardOctave * 12 + 12 + PIANO_KEYS[key])
+      if (track) keyOff(track, current.keyboardOctave * 12 + 12 + PIANO_KEYS[key])
     }
     const blur = () => {
       heldKeys.current.clear()
+      releaseKeys()
       engine.releaseAll()
     }
     window.addEventListener('keydown', keydown)
@@ -235,6 +246,7 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
     window.addEventListener('blur', blur)
     return () => {
       unwatch()
+      unwatchBackup()
       cancelAnimationFrame(frame)
       window.removeEventListener('keydown', keydown)
       window.removeEventListener('keyup', keyup)
@@ -300,9 +312,10 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
       download(new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' }), `${name} stems.zip`)
     })
   const exportBundleZip = () =>
-    runExport('Packing project', async () =>
-      download(await exportBundle(state.project, engine.blobs), `${name}.lalala.zip`),
-    )
+    runExport('Packing project', async () => {
+      download(await exportBundle(state.project, engine.blobs), `${name}.lalala.zip`)
+      markBackedUp()
+    })
   const exportJson = () => {
     download(new Blob([JSON.stringify(state.project, null, 2)], { type: 'application/json' }), `${name}.json`)
     setExportMenu(false)
@@ -411,9 +424,24 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
             <Keyboard size={13} />
             Keys
           </button>
-          <span className="local-badge">
+          {supportNote && (
+            <button
+              className="support-badge"
+              title={`Tested on Chrome and Edge. On ${BROWSER_LABEL[support.browser]} you lose: ${support.missing.join('; ')}.`}
+              onClick={() => setSupportNote(false)}
+              aria-label="Browser support note"
+            >
+              <TriangleAlert size={12} />
+              {BROWSER_LABEL[support.browser].toUpperCase()}: LIMITED
+            </button>
+          )}
+          <span
+            className="local-badge session-badge"
+            data-sync="local"
+            title="Projects are stored in this browser only. Export a bundle to keep a copy or move it."
+          >
             <i />
-            LOCAL SESSION
+            LOCAL ONLY
           </span>
           <span className="audio-badge">WEB AUDIO</span>
         </div>
@@ -437,6 +465,16 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
                   >
                     <Plus size={14} />
                     New project
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setProjectMenu(false)
+                      setStarter('picker')
+                    }}
+                  >
+                    <Sparkles size={14} />
+                    New from a starter
                   </button>
                   <button
                     role="menuitem"
@@ -683,6 +721,20 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
               {state.notice}
             </div>
           )}
+          {state.backupDue && state.ready && (
+            <div className="backup-banner" role="status">
+              <HardDriveDownload size={15} />
+              <span>
+                Your projects live only in this browser. You have made a lot of changes since the last backup: download
+                a bundle so clearing site data or switching device does not lose them.
+              </span>
+              <button className="export-button" disabled={Boolean(exporting)} onClick={() => void exportBundleZip()}>
+                <Download size={14} />
+                Download backup
+              </button>
+              <button onClick={() => snoozeBackup()}>Later</button>
+            </div>
+          )}
           {view === 'lab' && state.ready && <SoundLab openJam={() => navigate('/jam')} />}
           {learnMode && state.ready && <Tutorials navigate={navigate} />}
           {jamMode && state.ready && <JamPanel openStudio={() => navigate('/')} />}
@@ -834,6 +886,9 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
                   {state.ready ? 'SESSION READY' : 'LOADING SESSION'}
                 </span>
                 <span>
+                  {keyName(state.project.key).toUpperCase()} <b>/</b> {state.project.bpm} BPM
+                </span>
+                <span>
                   CLIENT-SIDE AUDIO <b>/</b> NO CLOUD
                 </span>
                 <span>LA LA LA LA v0.2</span>
@@ -843,6 +898,8 @@ function Studio({ view, navigate }: { view: 'studio' | 'jam' | 'lab' | 'learn'; 
         </main>
       </div>
       {state.showShortcuts && <Shortcuts onClose={() => useStudio.setState({ showShortcuts: false })} />}
+      {starter && state.ready && <StarterPicker mode={starter} onClose={() => setStarter('')} />}
+      {!starter && view === 'studio' && <Coach navigate={navigate} />}
     </div>
   )
 }
@@ -862,7 +919,19 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
     ['+ / -', 'Zoom timeline'],
     ['Shift+drag ruler', 'Set loop region'],
     ['Double-click lane', 'Add the current pattern as a clip'],
+    ['Key / In key', 'Set the song key in the transport; In key snaps notes to it'],
+    ['Chord', 'On the keyboard or piano roll: one key plays a chord'],
     ['?', 'This panel'],
+  ]
+  const terms: [string, string][] = [
+    ['Pattern', 'A loop of 1 to 16 bars of steps and notes. The step sequencer edits the current one.'],
+    ['Clip', 'A block on the timeline: a pattern, a MIDI clip, a recording or automation.'],
+    ['Lane', 'A row of the timeline. Any clip can sit on any lane.'],
+    ['Track', 'An instrument or channel: drums, keys, synth, audio or bus. Tracks live in the mixer.'],
+    ['Kit', 'A drum track: one sample sliced across 16 pads.'],
+    ['Take', 'A Jam-room recording. Add to song turns it into a pattern clip.'],
+    ['Bus', 'A track other tracks route into or send to, for shared reverb or group compression.'],
+    ['Bundle', 'A ZIP with the project and all its audio. Import it anywhere.'],
   ]
   return (
     <div className="shortcuts-overlay" role="dialog" aria-label="Keyboard shortcuts" onClick={onClose}>
@@ -883,6 +952,19 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
                 <kbd>{keys}</kbd>
               </dt>
               <dd>{action}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="section-heading glossary-heading">
+          <h2>Terms</h2>
+        </div>
+        <dl className="glossary">
+          {terms.map(([term, meaning]) => (
+            <div key={term}>
+              <dt>
+                <kbd>{term}</kbd>
+              </dt>
+              <dd>{meaning}</dd>
             </div>
           ))}
         </dl>

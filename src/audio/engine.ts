@@ -2,8 +2,10 @@ import type { MidiClip, Pad, Project, Track } from '../state/types'
 import { patternStepsAt } from '../state/arrangement'
 import { automationAt } from '../state/automation'
 import { stepsPerBar } from '../state/defaults'
-import { AudioGraph, type Voice } from './graph'
+import { AudioGraph, stretchKey, type Voice } from './graph'
 export { AudioGraph } from './graph'
+import { stretchRatio } from './stretch'
+import type { StretchRequest, StretchResponse } from './stretch.worker'
 import { Ticker } from './clock'
 import { InputRecorder } from './recorder'
 import { arrangementSteps, LookaheadScheduler, stepDuration, stepTime } from './timing'
@@ -117,7 +119,7 @@ export function scheduleStep(ctx: StepContext, index: number, time: number) {
     if (clip.kind === 'midi' && track) scheduleMidi(ctx, clip, track, beat, windowEnd, time)
     else if (clip.kind === 'audio' && track && Math.round(clip.start * 4) === index) {
       const duration = clip.length * beatSeconds(bpm)
-      if (graph.playClip(track, clip, time, clip.offset, duration)) events?.push({ time, clipId: clip.id })
+      if (graph.playClip(track, clip, time, clip.offset, duration, bpm)) events?.push({ time, clipId: clip.id })
     }
   }
   for (const { target, value } of automationAt(project, beat).values()) graph.automate(target, value, time)
@@ -158,13 +160,18 @@ function resumeAudioClips(ctx: StepContext, beat: number, time: number) {
     const track = ctx.project.tracks.find(item => item.id === clip.trackId)
     if (!track) continue
     const skipped = (beat - clip.start) * beatSeconds(bpm)
-    ctx.graph.playClip(track, clip, time, clip.offset + skipped, clip.length * beatSeconds(bpm) - skipped)
+    const { ratio } = ctx.graph.clipBuffer(clip, bpm)
+    ctx.graph.playClip(track, clip, time, clip.offset + skipped / ratio, clip.length * beatSeconds(bpm) - skipped, bpm)
   }
 }
 
 export class StudioEngine {
   buffers = new Map<string, AudioBuffer>()
   blobs = new Map<string, Blob>()
+  /** time-stretched copies of clip audio, keyed by stretchKey */
+  stretched = new Map<string, AudioBuffer>()
+  private stretchWorker?: Worker
+  private stretching = new Map<string, Promise<void>>()
   context?: AudioContext
   graph?: AudioGraph
   scheduler?: LookaheadScheduler
@@ -190,7 +197,7 @@ export class StudioEngine {
   private ensureContext() {
     if (!this.context) {
       this.context = new AudioContext({ latencyHint: 'interactive' })
-      this.graph = new AudioGraph(this.context, this.buffers)
+      this.graph = new AudioGraph(this.context, this.buffers, this.stretched)
       this.recorder = new InputRecorder(this.context)
     }
     return this.context
@@ -215,6 +222,67 @@ export class StudioEngine {
   }
   sync(project: Project) {
     this.graph?.sync(project)
+    void this.prepareStretches(project)
+  }
+
+  /** Stretched copies every tempo-following clip needs at the project's tempo, computed off the main thread. */
+  prepareStretches(project: Project) {
+    const jobs: Promise<void>[] = []
+    for (const clip of project.clips) {
+      if (clip.kind !== 'audio' || !clip.followTempo || !clip.sourceBpm) continue
+      const ratio = stretchRatio(clip.sourceBpm, project.bpm)
+      if (Math.abs(ratio - 1) < 0.005) continue
+      const key = stretchKey(clip.bufferId, ratio)
+      if (this.stretched.has(key)) continue
+      let job = this.stretching.get(key)
+      if (!job) {
+        job = this.stretch(clip.bufferId, ratio, key).finally(() => this.stretching.delete(key))
+        this.stretching.set(key, job)
+      }
+      jobs.push(job)
+    }
+    return Promise.all(jobs).then(() => undefined)
+  }
+
+  private stretch(bufferId: string, ratio: number, key: string) {
+    const buffer = this.buffers.get(bufferId)
+    const context = this.ensureContext()
+    if (!buffer) return Promise.resolve()
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, channel) =>
+      buffer.getChannelData(channel).slice(),
+    )
+    const request: StretchRequest = { id: key, channels, ratio, sampleRate: buffer.sampleRate }
+    return new Promise<void>(resolve => {
+      const worker = (this.stretchWorker ??= new Worker(new URL('./stretch.worker.ts', import.meta.url), {
+        type: 'module',
+      }))
+      const onMessage = (event: MessageEvent<StretchResponse>) => {
+        if (event.data.id !== key) return
+        worker.removeEventListener('message', onMessage)
+        const result = context.createBuffer(
+          event.data.channels.length,
+          event.data.channels[0]?.length ?? 1,
+          buffer.sampleRate,
+        )
+        event.data.channels.forEach((channel, index) => result.getChannelData(index).set(channel))
+        this.stretched.set(key, result)
+        resolve()
+      }
+      worker.addEventListener('message', onMessage)
+      worker.postMessage(
+        request,
+        channels.map(channel => channel.buffer as ArrayBuffer),
+      )
+    })
+  }
+
+  /** Drops stretched copies no clip at the current tempo uses. */
+  pruneStretches(project: Project) {
+    const wanted = new Set<string>()
+    for (const clip of project.clips)
+      if (clip.kind === 'audio' && clip.followTempo && clip.sourceBpm)
+        wanted.add(stretchKey(clip.bufferId, stretchRatio(clip.sourceBpm, project.bpm)))
+    for (const key of this.stretched.keys()) if (!wanted.has(key)) this.stretched.delete(key)
   }
   get clockKind() {
     return this.ticker?.kind ?? 'interval'
@@ -271,7 +339,8 @@ export class StudioEngine {
     await this.ready()
     this.stop()
     const project = getProject()
-    this.sync(project)
+    this.graph!.sync(project)
+    await this.prepareStretches(project)
     this.getProject = getProject
     this.patternId = patternId
     this.mode = songMode ? 'song' : 'pattern'
@@ -375,8 +444,9 @@ export class StudioEngine {
     const length = total * stepDuration(project.bpm)
     if (length > 600) throw new Error('WAV export is limited to 10 minutes to protect browser memory.')
     const tail = options.tail ?? 8
+    await this.prepareStretches(project)
     const context = new OfflineAudioContext(2, Math.ceil((length + tail) * 44100), 44100)
-    const graph = new AudioGraph(context, this.buffers)
+    const graph = new AudioGraph(context, this.buffers, this.stretched)
     const rendered: Project = options.soloTrackId
       ? {
           ...project,

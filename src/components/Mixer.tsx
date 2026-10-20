@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, Mic, Plus, Trash2, Headphones } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Mic, Plus, Trash2, Headphones, Wand2 } from 'lucide-react'
+import { MIX_ACTIONS, runMixAction } from '../state/mixAssistant'
 import { engine } from '../audio/engine'
 import { useStudio } from '../state/store'
 import { addTrack, moveTrack, removeTrack, selectTrack } from '../state/actions'
@@ -19,6 +20,7 @@ export function Mixer() {
   const { project, selectedTrackId, edit, inputArmed } = useStudio()
   const [levels, setLevels] = useState<Map<string, number>>(new Map())
   const [showAdd, setShowAdd] = useState(false)
+  const [showAssist, setShowAssist] = useState(false)
   useEffect(() => {
     let frame = 0
     let last = 0
@@ -40,6 +42,36 @@ export function Mixer() {
         <h2>Mixer</h2>
         <div className="inline-actions">
           <span>{project.tracks.length} CHANNELS</span>
+          <div className="export-container">
+            <button
+              onClick={() => setShowAssist(!showAssist)}
+              aria-expanded={showAssist}
+              title="One-click mixing moves"
+            >
+              <Wand2 size={13} />
+              Assist
+            </button>
+            {showAssist && (
+              <div className="export-menu assist-menu" role="menu" aria-label="Mix assistant">
+                {MIX_ACTIONS.map(action => (
+                  <button
+                    key={action.id}
+                    role="menuitem"
+                    disabled={!action.available(project)}
+                    onClick={() => {
+                      runMixAction(action.id)
+                      setShowAssist(false)
+                    }}
+                  >
+                    <span>
+                      {action.label}
+                      <small>{action.description}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="export-container">
             <button onClick={() => setShowAdd(!showAdd)} aria-expanded={showAdd}>
               <Plus size={13} />

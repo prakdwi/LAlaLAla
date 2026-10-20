@@ -87,8 +87,20 @@ function Toggle({
 }
 
 export function JamPanel({ openStudio }: { openStudio: () => void }) {
-  const { project, ready, edit, recording, playing, patternId, selectedTrackId, selectedPadId, mpc, past, undo } =
-    useStudio()
+  const {
+    project,
+    ready,
+    edit,
+    recording,
+    playing,
+    patternId,
+    selectedTrackId,
+    selectedPadId,
+    mpc,
+    past,
+    undo,
+    quantizeStrength,
+  } = useStudio()
   const [url, setUrl] = useState(project.jamSource ? `https://youtu.be/${project.jamSource.videoId}` : '')
   const [name, setName] = useState('Jam take')
   const [repeats, setRepeats] = useState(2)
@@ -283,6 +295,17 @@ export function JamPanel({ openStudio }: { openStudio: () => void }) {
                 </option>
               ))}
             </select>
+            <input
+              aria-label="Quantize strength"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={quantizeStrength}
+              disabled={!mpc.quantize}
+              title={`Quantize strength ${Math.round(quantizeStrength * 100)}%: how far hits move to the grid`}
+              onChange={event => useStudio.setState({ quantizeStrength: Number(event.target.value) })}
+            />
           </label>
           <Toggle
             on={mpc.erase}

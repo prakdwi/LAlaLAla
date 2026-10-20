@@ -15,6 +15,7 @@ import {
   toggleRecord,
 } from '../state/actions'
 import { IconButton } from './Controls'
+import { KeyPicker } from './KeyPicker'
 
 export function Transport() {
   const {
@@ -34,13 +35,30 @@ export function Transport() {
     clockKind,
   } = useStudio()
   const meter = useRef<HTMLCanvasElement>(null)
+  const lufs = useRef<HTMLSpanElement>(null)
   const track = project.tracks.find(item => item.id === selectedTrackId)
   useEffect(() => {
     let frame = 0
     const data = new Float32Array(256)
+    const weighted = new Float32Array(2048)
+    const ring = new Float32Array(180)
+    let ringIndex = 0
+    let ringFilled = 0
     const draw = () => {
       const canvas = meter.current
       const context = canvas?.getContext('2d')
+      if (engine.graph && lufs.current) {
+        // short-term loudness: K-weighted mean square over the last ~3 s of frames
+        ring[ringIndex] = engine.graph.loudnessMeanSquare(weighted)
+        ringIndex = (ringIndex + 1) % ring.length
+        ringFilled = Math.min(ring.length, ringFilled + 1)
+        let sum = 0
+        for (let index = 0; index < ringFilled; index++) sum += ring[index]
+        const mean = sum / (ringFilled || 1)
+        const value = mean > 1e-9 ? -0.691 + 10 * Math.log10(mean) : -Infinity
+        lufs.current.textContent = Number.isFinite(value) ? `${value.toFixed(1)} LUFS` : '-inf LUFS'
+        lufs.current.dataset.lufs = Number.isFinite(value) ? value.toFixed(1) : ''
+      }
       if (canvas && context) {
         engine.graph?.analyser.getFloatTimeDomainData(data)
         const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length)
@@ -144,6 +162,7 @@ export function Transport() {
           onChange={event => setSwing(Number(event.target.value))}
         />
       </label>
+      <KeyPicker />
       <div className="transport-toggles">
         <button
           className={`toggle ${project.metronome ? 'on' : ''}`}
@@ -218,6 +237,13 @@ export function Transport() {
           </small>
         </span>
         <canvas ref={meter} width="140" height="14" aria-label="Live master level" />
+        <span
+          className="lufs"
+          ref={lufs}
+          title="Short-term loudness (K-weighted). Streaming services normalise to about -14 LUFS."
+        >
+          -inf LUFS
+        </span>
         <input
           aria-label="Master volume"
           type="range"

@@ -17,7 +17,17 @@ npm run dev       # plain Vite only
 
 ## What it does
 
-**Tracks.** Add as many as you like from the mixer: drum sampler (16 pads, auto-sliced), pitched sampler (one sample played chromatically from a root note), synthesizer (two oscillators, sub, noise, resonant filter, ADSR, unison, glide, presets), audio track (microphone / line-in recording), and bus (group or send return). Rename, recolor, reorder, remove.
+**Starters.** The first visit opens a starter picker: seven genre templates (trap, boom bap, house, lo-fi, drill, afrobeats, pop) that each build a kit, drums, chords, a bass line and a short arrangement in a key, then a three-step coach walks through play, edit and tweak. **New from a starter** in the project menu does the same later.
+
+**Key and scale.** The transport holds the project key (root and scale). **In key** snaps the piano roll, the on-screen keyboard, the computer keyboard and MIDI input to the scale and dims the other notes. **Chord** turns one key or click into a triad, seventh, spread or power chord, and **Write chords** fills a MIDI clip with one of 20 progressions in the key.
+
+**Generators.** The step sequencer toolbar writes drum parts for the selected track: genre presets per role (kick, snare, hat, perc), a density-driven random pattern, a fill, named grooves (MPC swing, late snares, pushed, shuffle) that set timing, accents and swing for the whole pattern, and humanize. The piano roll writes a melody or a bass line over the chords on the other tracks (or the picked progression), in key. Quantize strength (0 to 100 percent) applies to recorded notes and Jam takes.
+
+**Mix assistant.** The mixer's **Assist** menu holds one-click moves that create ordinary effects and routing: sidechain the bass to the kick, high-pass everything but drums and bass, glue the drums through a bus, widen the chord tracks, and a streaming-loudness limiter. The transport shows short-term loudness in LUFS.
+
+**Song builder.** **Build song** in the arrangement lays a structure (loop, pop, electronic, hip-hop, slow build) out from one pattern; each section keeps only some roles of the pattern, and sections become markers on the ruler (click to jump, shift-click to remove, double-click to rename).
+
+**Tracks.** Add as many as you like from the mixer: drum sampler (16 pads, auto-sliced; any pad can also hold its own sample via **To pad** or the library), pitched sampler (one sample played chromatically from a root note), synthesizer (two oscillators, sub, noise, resonant filter, ADSR, unison, glide, presets), audio track (microphone / line-in recording), and bus (group or send return). Rename, recolor, reorder, remove.
 
 **Patterns and step sequencer.** Patterns are 1 to 16 bars at sixteenth resolution in 2/4 through 7/4. Toggle steps, right-click or long-press for velocity and microtiming, record pad hits live. Melodic tracks trigger their root note from the grid.
 
@@ -25,17 +35,19 @@ npm run dev       # plain Vite only
 
 **Piano roll.** Click to add notes, drag to move, drag the right edge to resize, alt-drag for velocity, double-click to delete. The on-screen keyboard and the computer keyboard (A-L white keys, W-P black keys, Z/X octave) play the selected keys or synth track and record into a MIDI clip at the playhead while recording in song mode. Web MIDI controllers work after clicking **MIDI**.
 
-**Recording.** Select an audio track, **Arm**, press record, then play the song. A count-in of 0 to 2 bars runs first; the recording is trimmed so the clip starts exactly on the downbeat. Monitor toggles live input through the track. Clips can be trimmed, faded, gained, and pitched. Clips are not time-stretched.
+**Recording.** Select an audio track, **Arm**, press record, then play the song. A count-in of 0 to 2 bars runs first; the recording is trimmed so the clip starts exactly on the downbeat. Monitor toggles live input through the track. Clips can be trimmed, faded, gained, and pitched. **Follow tempo** time-stretches a clip from its source BPM (recorded, typed or detected) to the project tempo without changing pitch; stretched copies are rendered in a worker and used by exports too.
 
 **Mixing.** Each channel has a live meter, fader, pan, mute, solo, two insert toggles, sends to every bus, and an output selector (master or a bus). The rack holds any number of effects per track, pad, or master: filter, 3-band EQ, compressor (with sidechain from another track), delay, reverb, chorus, saturation, bitcrush, and limiter. The small **+** beside a knob creates an automation clip for it.
 
 **Transport.** Tempo and swing change live without stopping. Metronome, loop, count-in, and 2/4–7/4 time signatures. The clock runs in an AudioWorklet, so playback continues when the tab is hidden.
 
-**Projects.** Several projects live in IndexedDB; switch from the sidebar. New, duplicate, delete, import (JSON or ZIP bundle), and export. Unused audio is garbage-collected when a project is deleted. Saved projects from the original one-bar version migrate automatically.
+**Projects.** Several projects live in IndexedDB; switch from the sidebar. The header badge says LOCAL ONLY because nothing leaves the browser; after about 150 edits (or a week with 20) without a bundle export the app asks for a backup. Firefox and Safari show a LIMITED badge listing what they lack (tab-audio sampling needs Chrome or Edge). New, duplicate, delete, import (JSON or ZIP bundle), and export. Unused audio is garbage-collected when a project is deleted. Saved projects from the original one-bar version migrate automatically.
+
+**Library and packs.** Samples, kits and synth patches saved from the Sound Lab or the sample editor live in a cross-project library. **Packs** installs factory content: four packs of synthesized kits and patches (trap, house and club, lo-fi and soul, afro and pop).
 
 **Export.** Render the song to WAV or MP3, export per-track stems as a ZIP of WAVs, export a project bundle (ZIP with project JSON plus every sample and recording) that re-imports anywhere, or export settings-only JSON. The app installs as a PWA and works offline after the first load.
 
-Press **?** for the keyboard shortcut list.
+Press **?** for the keyboard shortcut list and a glossary of terms (pattern, clip, lane, take, bus).
 
 ## Jam room (MPC mode)
 
@@ -64,11 +76,17 @@ The result is an ordinary sample: chop it, trim pads, tune, reverse, and it play
 
 ```text
 src/audio/     engine (shared live/offline step scheduler), graph (buses, sends, voices, meters,
-               automation), effects, synth, clock (AudioWorklet ticker), recorder (worklet capture),
-               midi, timing (lookahead scheduler with live tempo, seek, loop), slicing, wav
-src/state/     types (schema v2), migrate (v0 -> v2), defaults, arrangement (clip math), automation,
+               automation, loudness tap), effects, synth, clock (AudioWorklet ticker), recorder
+               (worklet capture), midi, timing (lookahead scheduler with live tempo, seek, loop),
+               slicing, stretch (WSOLA time-stretch + worker), tempo (BPM detection), wav
+src/state/     types (schema v5), migrate (v0 -> v5), defaults, arrangement (clip math), automation,
                actions, mpc (pad modes, note repeat, sampling, resample), sampling (pad banks,
-               chop assignment), store (Zustand + Immer patches), jam
+               chop assignment), store (Zustand + Immer patches), jam, scale (keys, chords,
+               progressions), performance (scale lock + chord mode for live input), backup,
+               generate (drum presets, Euclidean and density patterns, grooves, humanize, melody
+               and bass), mixAssistant, songBuilder
+src/templates/ genre starters built through the tutorial helpers
+src/content/   factory packs (kits rendered with the drum synth, synth patches)
 src/db/        IndexedDB: multiple projects, audio blobs, garbage collection, import
 src/export/    MP3 (lamejs in a worker), ZIP bundles (fflate)
 src/components Timeline, PianoRoll, AudioClipEditor, AutomationEditor, SynthPanel, KeyboardPiano,

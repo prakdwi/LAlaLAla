@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Magnet, Minus, Plus, Trash2 } from 'lucide-react'
+import { Magnet, Minus, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { bassNotes, chordsFromNotes, melodyNotes, roleFromName, type ChordSpan } from '../state/generate'
 import { useStudio } from '../state/store'
 import { noteOff, noteOn } from '../state/actions'
+import { chordPitches, inScale, keyName, PROGRESSIONS, progressionNotes, snapToScale } from '../state/scale'
 import { isBlackKey, noteName } from '../audio/midi'
 import { snapBeat } from '../state/arrangement'
 import { uid } from '../state/defaults'
 import type { MidiClip, Note } from '../state/types'
 import { IconButton, Range } from './Controls'
+import { ChordModePicker } from './KeyPicker'
 
 const ROW = 14
 const LOW = 24
@@ -74,8 +77,83 @@ export function PianoRoll({ clip }: { clip: MidiClip }) {
 
 /** Grid editor over any note list. Click to add notes, drag to move, drag the right edge to resize. */
 export function NoteEditor({ source: clip }: { source: NoteSource }) {
-  const { project, noteFlashes, quantize } = useStudio()
+  const { project, noteFlashes, quantize, quantizeStrength, scaleLock, chordMode, patternId } = useStudio()
   const track = project.tracks.find(item => item.id === clip.trackId)
+  const key = project.key
+  const [progression, setProgression] = useState(0)
+  const [generateDensity, setGenerateDensity] = useState(0.6)
+  const [generateSeed, setGenerateSeed] = useState(1)
+  /** Chords to write over: other tracks' notes in this pattern or overlapping clips, else the picked progression. */
+  const chordSource = (): { chords: ChordSpan[]; from: string } => {
+    const notes: Note[] = []
+    const arrangementClip = project.clips.find(item => item.id === clip.id)
+    const pattern = project.patterns.find(item => item.id === patternId)
+    if (arrangementClip) {
+      for (const other of project.clips) {
+        if (other.kind !== 'midi' || other.trackId === clip.trackId) continue
+        if (
+          other.start >= arrangementClip.start + arrangementClip.length ||
+          other.start + other.length <= arrangementClip.start
+        )
+          continue
+        const shift = other.start - arrangementClip.start
+        notes.push(...other.notes.map(note => ({ ...note, start: note.start + shift })))
+      }
+    } else if (pattern) {
+      for (const row of pattern.trackSteps) if (row.trackId !== clip.trackId) notes.push(...row.notes)
+    }
+    const found = chordsFromNotes(notes, 3)
+    if (found.length) return { chords: found, from: 'the other tracks' }
+    const fallback = progressionNotes(key, PROGRESSIONS[progression], {
+      totalBeats: clip.length,
+      beatsPerChord: Math.max(0.5, clip.length / 4),
+      octave: 4,
+    })
+    return { chords: chordsFromNotes(fallback, 3), from: `the ${PROGRESSIONS[progression].name.trim()} progression` }
+  }
+  const kickBeats = (): number[] => {
+    const pattern = project.patterns.find(item => item.id === patternId)
+    const beats: number[] = []
+    for (const drums of project.tracks.filter(item => item.kind === 'drums')) {
+      const row = pattern?.trackSteps.find(item => item.trackId === drums.id)
+      row?.steps.forEach((step, index) => {
+        const pad = drums.pads.find(item => item.id === (step.padId || drums.sequencerPadId))
+        if (step.active && roleFromName(pad?.name ?? drums.name) === 'kick') beats.push(index / 4)
+      })
+    }
+    return beats.filter(beat => beat < clip.length)
+  }
+  const generate = (what: 'melody' | 'bass') => {
+    const seed = generateSeed + 1
+    setGenerateSeed(seed)
+    const { chords, from } = chordSource()
+    const notes =
+      what === 'melody'
+        ? melodyNotes(key, chords, { totalBeats: clip.length, density: generateDensity, centre: 72, seed })
+        : bassNotes(key, chords, { totalBeats: clip.length, kickBeats: kickBeats(), octave: 2 })
+    update(what === 'melody' ? 'Generate melody' : 'Generate bass', list => {
+      list.length = 0
+      list.push(...notes)
+    })
+    useStudio.setState({
+      notice: `${what === 'melody' ? 'Melody' : 'Bass line'} written over ${from} in ${keyName(key)}. Press again for another take, Ctrl+Z to go back.`,
+    })
+  }
+  const snapPitch = (pitch: number) => (scaleLock ? snapToScale(key, pitch) : pitch)
+  const dropProgression = () => {
+    const totalBeats = clip.loopLength < clip.length ? clip.loopLength : clip.length
+    const notes = progressionNotes(key, PROGRESSIONS[progression], {
+      totalBeats,
+      // four chords always fit: a 1-bar clip gets one chord a beat, a 4-bar clip one a bar
+      beatsPerChord: Math.max(0.5, totalBeats / 4),
+      voicing: chordMode === 'off' || chordMode === 'power' ? 'triad' : chordMode,
+      octave: 4,
+    })
+    update('Chord progression', list => {
+      list.length = 0
+      list.push(...notes)
+    })
+  }
   const [zoom, setZoom] = useState(64)
   const [selected, setSelected] = useState<string>('')
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -104,7 +182,7 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
             const note = notes.find(item => item.id === drag.noteId)
             if (!note) return
             note.start = Math.max(0, Math.min(clip.length - note.length, snapBeat(drag.start + dx, grid)))
-            note.pitch = Math.max(LOW, Math.min(HIGH - 1, drag.pitch - dy))
+            note.pitch = Math.max(LOW, Math.min(HIGH - 1, snapPitch(drag.pitch - dy)))
           },
           `note-move-${drag.noteId}`,
         )
@@ -113,11 +191,14 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
           'Resize note',
           notes => {
             const note = notes.find(item => item.id === drag.noteId)
-            if (note)
-              note.length = Math.max(
-                grid || 0.125,
-                Math.min(clip.length - note.start, snapBeat(drag.length + dx, grid)),
-              )
+            if (!note) return
+            const length = Math.max(grid || 0.125, Math.min(clip.length - note.start, snapBeat(drag.length + dx, grid)))
+            // a chord drawn in one click resizes as one
+            const group =
+              drag.kind === 'create' && chordMode !== 'off'
+                ? notes.filter(item => item.start === note.start && item.length === note.length)
+                : [note]
+            for (const item of group) item.length = length
           },
           `note-resize-${drag.noteId}`,
         )
@@ -151,6 +232,54 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
         </h2>
         <div className="inline-actions">
           <span className="eyebrow">{track?.name}</span>
+          <ChordModePicker />
+          <label className="progression-picker" title="Fill the clip with a chord progression in the project key">
+            <Sparkles size={12} aria-hidden="true" />
+            <select
+              aria-label="Chord progression"
+              value={progression}
+              onChange={event => setProgression(Number(event.target.value))}
+            >
+              {PROGRESSIONS.map((item, index) => (
+                <option key={item.name} value={index}>
+                  {item.name} · {item.feel}
+                </option>
+              ))}
+            </select>
+            <button onClick={dropProgression} title={`Write this progression in ${keyName(key)}`}>
+              Write chords
+            </button>
+          </label>
+          <label
+            className="progression-picker"
+            title="Generate notes over the chords of the other tracks (or the picked progression)"
+          >
+            <Wand2 size={12} aria-hidden="true" />
+            <input
+              aria-label="Melody density"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              value={generateDensity}
+              onChange={event => setGenerateDensity(Number(event.target.value))}
+            />
+            <button onClick={() => generate('melody')}>Melody</button>
+            <button onClick={() => generate('bass')}>Bass</button>
+          </label>
+          <label className="progression-picker" title="Quantize strength: how far recorded notes move to the grid">
+            Q
+            <input
+              aria-label="Quantize strength"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={quantizeStrength}
+              onChange={event => useStudio.setState({ quantizeStrength: Number(event.target.value) })}
+            />
+            <span className="eyebrow">{Math.round(quantizeStrength * 100)}%</span>
+          </label>
           <button
             className={`toggle ${quantize ? 'on' : ''}`}
             aria-pressed={quantize}
@@ -198,7 +327,7 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
             {pitches.map(pitch => (
               <button
                 key={pitch}
-                className={`piano-key ${isBlackKey(pitch) ? 'black' : ''} ${noteFlashes[`${clip.trackId}:${pitch}`] ? 'hit' : ''}`}
+                className={`piano-key ${isBlackKey(pitch) ? 'black' : ''} ${noteFlashes[`${clip.trackId}:${pitch}`] ? 'hit' : ''} ${scaleLock && !inScale(key, pitch) ? 'off-scale' : ''}`}
                 style={{ top: y(pitch), height: ROW }}
                 aria-label={`Preview ${noteName(pitch)}`}
                 onPointerDown={() => track && void noteOn(track, pitch, 0.8)}
@@ -222,21 +351,32 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
                 return
               const bounds = event.currentTarget.getBoundingClientRect()
               const beat = snapBeat((event.clientX - bounds.left) / zoom, grid || 0.0625)
-              const pitch = HIGH - 1 - Math.floor((event.clientY - bounds.top) / ROW)
+              const pitch = snapPitch(HIGH - 1 - Math.floor((event.clientY - bounds.top) / ROW))
               const id = uid()
-              update('Add note', notes =>
+              const chord = chordMode === 'off' ? [] : chordPitches(key, pitch, chordMode).slice(1)
+              update(chord.length ? 'Add chord' : 'Add note', notes => {
                 notes.push({
                   id,
                   pitch,
                   start: Math.max(0, Math.min(clip.length - 0.25, beat)),
                   length: grid || 0.25,
                   velocity: 0.8,
-                }),
-              )
+                })
+                for (const extra of chord)
+                  notes.push({
+                    id: uid(),
+                    pitch: extra,
+                    start: Math.max(0, Math.min(clip.length - 0.25, beat)),
+                    length: grid || 0.25,
+                    velocity: 0.8,
+                  })
+              })
               setSelected(id)
               if (track) {
-                void noteOn(track, pitch, 0.8)
-                setTimeout(() => noteOff(track, pitch), 150)
+                for (const sound of [pitch, ...chord]) {
+                  void noteOn(track, sound, 0.8)
+                  setTimeout(() => noteOff(track, sound), 150)
+                }
               }
               setDrag({
                 kind: 'create',
@@ -253,7 +393,7 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
             {pitches.map(pitch => (
               <i
                 key={pitch}
-                className={`piano-row ${isBlackKey(pitch) ? 'black' : ''} ${pitch % 12 === 0 ? 'octave' : ''}`}
+                className={`piano-row ${isBlackKey(pitch) ? 'black' : ''} ${pitch % 12 === 0 ? 'octave' : ''} ${scaleLock && !inScale(key, pitch) ? 'off-scale' : ''}`}
                 style={{ top: y(pitch), height: ROW }}
               />
             ))}
@@ -313,6 +453,15 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
               </div>
             ))}
             {local >= 0 && <div className="piano-playhead" style={{ left: local * zoom }} />}
+            {!clip.notes.length && (
+              <div className="editor-empty piano-empty" aria-hidden="true">
+                <strong>Click anywhere to draw a note.</strong>
+                <span>
+                  {scaleLock ? `Scale lock keeps it in ${keyName(key)}. ` : ''}
+                  Set Chord to Triad for one-click chords, or press Write chords for a whole progression.
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -383,7 +532,10 @@ export function NoteEditor({ source: clip }: { source: NoteSource }) {
             </IconButton>
           </div>
         ) : (
-          <span>Click to add. Drag right edge to resize. Alt-drag for velocity. Double-click to delete.</span>
+          <span>
+            Click to add. Drag right edge to resize. Alt-drag for velocity. Double-click to delete.
+            {scaleLock ? ` Locked to ${keyName(key)}.` : ''}
+          </span>
         )}
       </div>
     </section>

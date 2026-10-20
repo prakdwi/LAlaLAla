@@ -105,3 +105,28 @@ it('v2 projects gain empty note lists on every pattern row', () => {
   expect(project.schemaVersion).toBe(SCHEMA_VERSION)
   expect(project.patterns[0].trackSteps.every(row => Array.isArray(row.notes) && row.notes.length === 0)).toBe(true)
 })
+
+it('v3 projects gain a default key of C minor and bad keys are replaced', () => {
+  const current = makeProject() as unknown as Record<string, unknown>
+  delete current.key
+  current.schemaVersion = 3
+  const project = migrateProject(current)
+  expect(project.schemaVersion).toBe(SCHEMA_VERSION)
+  expect(project.key).toEqual({ root: 0, scale: 'minor' })
+  const kept = migrateProject({ ...makeProject(), key: { root: 7, scale: 'dorian' } })
+  expect(kept.key).toEqual({ root: 7, scale: 'dorian' })
+  const fixed = migrateProject({ ...makeProject(), key: { root: 40, scale: 'nope' } })
+  expect(fixed.key).toEqual({ root: 0, scale: 'minor' })
+})
+
+it('v4 projects gain an empty marker list and keep pads without their own sample', () => {
+  const current = makeProject() as unknown as Record<string, unknown>
+  delete current.markers
+  current.schemaVersion = 4
+  const project = migrateProject(current)
+  expect(project.schemaVersion).toBe(SCHEMA_VERSION)
+  expect(project.markers).toEqual([])
+  expect(project.tracks[0].pads[0].bufferId).toBeUndefined()
+  const bad = migrateProject({ ...makeProject(), markers: [{ id: 'm', name: 'A', beat: 4 }, { name: 3 }] })
+  expect(bad.markers).toEqual([{ id: 'm', name: 'A', beat: 4 }])
+})

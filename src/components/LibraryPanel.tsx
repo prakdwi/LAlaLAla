@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Download, Library, Music2, Plus, Trash2, Waves, AudioLines } from 'lucide-react'
-import { useStudio } from '../state/store'
-import { deleteLibraryItem, loadLibraryItem, renameLibraryItem } from '../db/library'
+import { Download, Library, Music2, Package, Plus, Trash2, Waves, AudioLines, Grid2X2 } from 'lucide-react'
+import { reportError, useStudio } from '../state/store'
+import { deleteLibraryItem, loadLibraryItem, loadSampleToPad, renameLibraryItem } from '../db/library'
+import { installPack, PACKS, packInstalled } from '../content/packs'
 import type { LibraryItem } from '../state/types'
 import { IconButton } from './Controls'
 
@@ -9,10 +10,24 @@ const ICON = { sample: AudioLines, kit: Music2, synth: Waves }
 
 /** Sidebar list of the cross-project sound library. Items load onto the selected track or a new one. */
 export function LibraryPanel({ onOpenLab }: { onOpenLab: () => void }) {
-  const { library, selectedTrackId, project } = useStudio()
+  const { library, selectedTrackId, selectedPadId, project } = useStudio()
   const [filter, setFilter] = useState<'all' | LibraryItem['kind']>('all')
   const [editing, setEditing] = useState('')
+  const [packs, setPacks] = useState(false)
+  const [installing, setInstalling] = useState('')
   const track = project.tracks.find(item => item.id === selectedTrackId)
+  const padIndex = track?.pads.findIndex(pad => pad.id === selectedPadId) ?? -1
+  const install = async (id: string) => {
+    const pack = PACKS.find(item => item.id === id)!
+    setInstalling(`${pack.id}:0`)
+    try {
+      await installPack(pack, (done, total) => setInstalling(`${pack.id}:${Math.round((done / total) * 100)}`))
+    } catch (error) {
+      reportError(error)
+    } finally {
+      setInstalling('')
+    }
+  }
   const items = library.filter(item => filter === 'all' || item.kind === filter)
   const canLoadHere = (item: LibraryItem) =>
     item.kind === 'synth' ? track?.kind === 'synth' : track?.kind === 'drums' || track?.kind === 'keys'
@@ -22,8 +37,39 @@ export function LibraryPanel({ onOpenLab }: { onOpenLab: () => void }) {
         <span className="library-title">
           <Library size={12} /> LIBRARY
         </span>
-        <span>{String(library.length).padStart(2, '0')}</span>
+        <span>
+          <button
+            className="packs-toggle"
+            onClick={() => setPacks(!packs)}
+            aria-expanded={packs}
+            title="Factory sound packs"
+          >
+            <Package size={11} /> PACKS
+          </button>
+          {String(library.length).padStart(2, '0')}
+        </span>
       </div>
+      {packs && (
+        <div className="pack-list" aria-label="Sound packs">
+          {PACKS.map(pack => {
+            const installed = packInstalled(pack)
+            const busy = installing.startsWith(`${pack.id}:`)
+            return (
+              <div className="pack-item" key={pack.id}>
+                <div>
+                  <strong>{pack.name}</strong>
+                  <small>
+                    {pack.blurb} {pack.kits.length} kits, {pack.patches.length} patches.
+                  </small>
+                </div>
+                <button disabled={installed || Boolean(installing)} onClick={() => void install(pack.id)}>
+                  {installed ? 'Installed' : busy ? `${installing.split(':')[1]}%` : 'Install'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <div className="library-filters" role="tablist" aria-label="Library filter">
         {(['all', 'kit', 'sample', 'synth'] as const).map(kind => (
           <button
@@ -96,6 +142,14 @@ export function LibraryPanel({ onOpenLab }: { onOpenLab: () => void }) {
                     onClick={() => void loadLibraryItem(item, { newTrack: true })}
                   >
                     <Plus size={12} />
+                  </IconButton>
+                )}
+                {item.kind === 'sample' && track?.kind === 'drums' && padIndex >= 0 && (
+                  <IconButton
+                    title={`Put on pad ${padIndex + 1} of ${track.name}`}
+                    onClick={() => void loadSampleToPad(item, track.id, selectedPadId)}
+                  >
+                    <Grid2X2 size={12} />
                   </IconButton>
                 )}
                 <IconButton

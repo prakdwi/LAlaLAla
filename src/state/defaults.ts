@@ -190,6 +190,8 @@ export function makeProject(): Project {
     masterEffects: [makeEffect('limiter', true)],
     timeSignature,
     loop: { enabled: false, start: 0, end: 16 },
+    key: { root: 0, scale: 'minor' },
+    markers: [],
     metronome: false,
     countInBars: 0,
     createdAt: now,

@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs'
 const youtubeFixture = readFileSync(new URL('./fixtures/youtube-api.js', import.meta.url), 'utf8')
 
 test.beforeEach(async ({ page }) => {
+  // the first-run starter picker is covered by its own test; every other test starts on the demo loop
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('lalala-test-first-run')) localStorage.setItem('lalala-welcome', 'done')
+  })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Play pattern', exact: true })).toBeEnabled()
 })
@@ -501,4 +505,263 @@ test('Tutorials: tool lessons and song studies, demos build and play', async ({ 
   await page.getByRole('button', { name: 'Build the whole beat' }).click()
   await expect(page.locator('.notice-toast')).toContainText('Built', { timeout: 20000 })
   await expect(page.getByLabel('Original song YouTube link')).toBeVisible()
+})
+
+test('first run: starter picker builds a playing project in key and the coach follows along', async ({ page }) => {
+  await page.evaluate(() => {
+    sessionStorage.setItem('lalala-test-first-run', '1')
+    localStorage.removeItem('lalala-welcome')
+  })
+  await page.reload()
+  const picker = page.getByRole('dialog', { name: 'Choose a starter' })
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('.starter-card')).toHaveCount(7)
+  await picker.getByRole('button', { name: 'Build the Lo-fi starter' }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Lo-fi starter', { timeout: 20000 })
+  await expect(picker).toBeHidden()
+  await expect(page.getByLabel('Project name')).toHaveValue('Lo-fi starter')
+  await expect(page.getByLabel('BPM')).toHaveValue('78')
+  await expect(page.getByLabel('Key root')).toHaveValue('10')
+  await expect(page.getByLabel('Scale', { exact: true })).toHaveValue('major')
+  await expect(page.locator('.track-library button')).toHaveCount(3)
+  await expect(page.locator('.clip')).toHaveCount(3)
+  // coach: play, toggle a step, change the tempo
+  const coach = page.getByRole('status', { name: 'Getting started' })
+  await expect(coach).toContainText('STEP 1 OF 3')
+  await page.keyboard.press('Space')
+  await expect(coach).toContainText('STEP 2 OF 3', { timeout: 5000 })
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: 'Kit step 2', exact: true }).click()
+  await expect(coach).toContainText('STEP 3 OF 3', { timeout: 5000 })
+  await page.getByLabel('BPM').fill('80')
+  await expect(coach).toContainText('YOU ARE SET', { timeout: 5000 })
+  await coach.getByRole('button', { name: 'Done' }).click()
+  await expect(coach).toBeHidden()
+  // the flag persists: a reload starts straight in the studio
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Play pattern', exact: true })).toBeEnabled()
+  await expect(page.getByRole('dialog', { name: 'Choose a starter' })).toHaveCount(0)
+  await expect(page.getByLabel('Project name')).toHaveValue('Lo-fi starter')
+  // a starter is also reachable from the project menu
+  await page.getByRole('button', { name: 'Project actions' }).click()
+  await page.getByRole('menuitem', { name: 'New from a starter' }).click()
+  await expect(page.getByRole('dialog', { name: 'Choose a starter' })).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+})
+
+test('key, scale lock, chord mode and the progression writer in the piano roll', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add track' }).click()
+  await page.getByRole('menuitem', { name: 'Synthesizer' }).click()
+  await page.getByRole('button', { name: /New MIDI clip for Synth 1/ }).click()
+  await expect(page.getByRole('heading', { name: /Piano roll/ })).toBeVisible()
+  await page.getByLabel('Key root').selectOption('5')
+  await page.getByLabel('Scale', { exact: true }).selectOption('major')
+  await expect(page.locator('.studio-footer')).toContainText('F MAJOR')
+  const scroll = page.locator('.piano-scroll')
+  await scroll.scrollIntoViewIfNeeded()
+  const clickPitch = async (pitch: number, x: number) => {
+    const top = (108 - 1 - pitch) * 14
+    await scroll.evaluate((element, value) => {
+      element.scrollTop = value
+    }, top - 40)
+    const box = (await scroll.boundingBox())!
+    await page.mouse.click(box.x + 56 + x, box.y + 40 + 7)
+  }
+  // scale lock is on by default: a click on B (not in F major) lands on Bb
+  await clickPitch(71, 10)
+  await expect(page.locator('.piano-note')).toHaveCount(1)
+  await expect(page.locator('.piano-note')).toHaveAttribute('aria-label', /Note A#4/)
+  await expect(page.locator('.piano-row.off-scale').first()).toBeAttached()
+  // unlocked: the same click is a B
+  await page.getByRole('button', { name: /Scale lock on/ }).click()
+  await clickPitch(71, 80)
+  await expect(page.locator('.piano-note')).toHaveCount(2)
+  await expect(page.locator('.piano-note').nth(1)).toHaveAttribute('aria-label', /Note B4/)
+  await page.getByRole('button', { name: /Scale lock off/ }).click()
+  // chord mode: one click, three notes
+  await page.getByLabel('Chord mode').first().selectOption('triad')
+  await clickPitch(65, 160)
+  await expect(page.locator('.piano-note')).toHaveCount(5)
+  // the progression writer replaces the clip with held chords
+  await page.getByLabel('Chord progression').selectOption({ index: 0 })
+  await page.getByRole('button', { name: 'Write chords' }).click()
+  await expect(page.locator('.piano-note')).toHaveCount(12)
+  await expect(page.locator('.piano-note').first()).toHaveAttribute('aria-label', /Note F3 at beat 0/)
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.piano-note')).toHaveCount(5)
+  // the on-screen keyboard dims out-of-key keys and plays chords
+  await page.getByRole('tab', { name: 'Step sequencer' }).click()
+  await expect(page.locator('.piano-keyboard .off-scale').first()).toBeAttached()
+})
+
+test('backup reminder appears after many edits and resets on a bundle export', async ({ page }) => {
+  await page.evaluate(() =>
+    localStorage.setItem('lalala-backup', JSON.stringify({ editsSince: 149, lastBackup: Date.now(), snoozedUntil: 0 })),
+  )
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Play pattern', exact: true })).toBeEnabled()
+  await expect(page.locator('.backup-banner')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Kick step 2', exact: true }).click()
+  await expect(page.locator('.backup-banner')).toBeVisible({ timeout: 5000 })
+  const download = page.waitForEvent('download')
+  await page.locator('.backup-banner').getByRole('button', { name: 'Download backup' }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.lalala\.zip$/)
+  await expect(page.locator('.backup-banner')).toBeHidden()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('lalala-backup')!).editsSince)).toBe(0)
+  // the header says where the data lives and ? lists the terms
+  await expect(page.locator('.session-badge')).toHaveText(/LOCAL ONLY/)
+  await page.keyboard.press('?')
+  await expect(page.locator('.glossary')).toContainText('Pattern')
+})
+
+test('generators: preset, random, fill, groove and humanize write into the pattern', async ({ page }) => {
+  await page.getByLabel('Preset genre').selectOption('house')
+  await page.getByRole('button', { name: 'Preset', exact: true }).click()
+  for (const step of [1, 5, 9, 13])
+    await expect(page.getByRole('button', { name: `Kick step ${step}`, exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  await expect(page.getByRole('button', { name: 'Kick step 2', exact: true })).toHaveAttribute('aria-pressed', 'false')
+  // the snare row was not touched
+  await expect(page.getByRole('button', { name: 'Snare step 5', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Random', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Kick step 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fill', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Kick step 16', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByLabel('Groove').selectOption('dilla')
+  await page.getByRole('button', { name: 'Groove', exact: true }).click()
+  await expect(page.getByRole('slider', { name: 'Swing' })).toHaveValue('0.2')
+  await page.getByRole('button', { name: 'Snare step 5', exact: true }).click({ button: 'right' })
+  await expect(page.getByRole('slider', { name: 'Microtiming', exact: true })).toHaveValue('18')
+  await page.getByRole('button', { name: 'Humanize', exact: true }).click()
+  await page.keyboard.press('Control+z')
+  await expect(page.getByRole('slider', { name: 'Microtiming', exact: true })).toHaveValue('18')
+})
+
+test('piano roll writes a melody and a bass line in key, quantize strength is adjustable', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add track' }).click()
+  await page.getByRole('menuitem', { name: 'Synthesizer' }).click()
+  await page.getByRole('button', { name: /New MIDI clip for Synth 1/ }).click()
+  await page.getByLabel('Key root').selectOption('9')
+  await page.getByLabel('Scale', { exact: true }).selectOption('minor')
+  await page.getByRole('button', { name: 'Melody', exact: true }).click()
+  const notes = page.locator('.piano-note')
+  expect(await notes.count()).toBeGreaterThan(2)
+  const labels = await notes.evaluateAll(elements => elements.map(element => element.getAttribute('aria-label') ?? ''))
+  // A minor: no C#, D#, F#, G# and no A#
+  expect(labels.every(label => !/Note (C#|D#|F#|G#|A#)/.test(label))).toBe(true)
+  await page.getByRole('button', { name: 'Bass', exact: true }).click()
+  const bass = await notes.evaluateAll(elements => elements.map(element => element.getAttribute('aria-label') ?? ''))
+  expect(bass.length).toBeGreaterThan(0)
+  expect(bass.every(label => /Note [A-G]#?[12] /.test(label))).toBe(true)
+  await expect(page.locator('.notice-toast')).toContainText('Bass line written')
+  const strength = page.getByRole('slider', { name: 'Quantize strength' })
+  await strength.fill('0.5')
+  await expect(strength).toHaveValue('0.5')
+})
+
+test('mix assistant glues the drums into a bus and the song builder lays out sections with markers', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'Assist', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Glue the drums/ }).click()
+  await expect(page.locator('.track-library button')).toHaveCount(5)
+  await expect(page.locator('.track-library button').last()).toContainText('Drum bus')
+  await expect(page.locator('.notice-toast')).toContainText('Drum bus')
+  await page.getByRole('button', { name: 'Assist', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Loudness for streaming/ }).click()
+  await expect(page.locator('.notice-toast')).toContainText('limiter')
+  // song builder
+  await page.getByRole('button', { name: 'Build song' }).click()
+  await page.getByLabel('Song structure').selectOption('pop')
+  await page.getByRole('button', { name: 'Build', exact: true }).click()
+  await expect(page.locator('.clip')).toHaveCount(8)
+  await expect(page.locator('.ruler .marker')).toHaveCount(8)
+  await expect(page.locator('.ruler .marker').nth(2)).toHaveText('Chorus')
+  await page
+    .locator('.ruler .marker')
+    .nth(2)
+    .click({ modifiers: ['Shift'] })
+  await expect(page.locator('.ruler .marker')).toHaveCount(7)
+  await page.getByRole('button', { name: 'Add marker at the playhead' }).click()
+  await expect(page.locator('.ruler .marker')).toHaveCount(8)
+  await page.getByRole('button', { name: 'Play song', exact: true }).click()
+  await page.waitForFunction(() => {
+    const value = document.querySelector<HTMLElement>('.lufs')?.dataset.lufs
+    return value !== undefined && value !== '' && Number(value) > -60
+  })
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+})
+
+test('packs install kits and patches into the library, a file lands on one pad only', async ({ page }) => {
+  await page.getByRole('button', { name: /PACKS/ }).click()
+  await page.locator('.pack-item', { hasText: 'Lo-fi and soul' }).getByRole('button', { name: 'Install' }).click()
+  await expect(page.locator('.pack-item', { hasText: 'Lo-fi and soul' }).getByRole('button')).toHaveText('Installed', {
+    timeout: 30000,
+  })
+  await expect(page.locator('.library-item')).toHaveCount(5)
+  await expect(page.locator('.library-item.kind-kit')).toHaveCount(2)
+  await expect(page.locator('.library-item.kind-synth')).toHaveCount(3)
+  // own sample on pad 2 of the Kick track
+  await page.getByRole('button', { name: 'Pad 2', exact: true }).click()
+  await page.evaluate(async () => {
+    const { encodeWav } = await import('/src/audio/wav.ts')
+    const sampleRate = 44100
+    const data = new Float32Array(sampleRate / 2)
+    for (let index = 0; index < 4000; index++) data[index] = Math.sin(index * 0.3) * Math.exp(-index / 900) * 0.8
+    const blob = encodeWav({ numberOfChannels: 1, length: data.length, sampleRate, getChannelData: () => data })
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([blob], 'my-snap.wav', { type: 'audio/wav' }))
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Load sample onto pad"]')!
+    input.files = transfer.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect(page.locator('.sample-info')).toContainText('own sample', { timeout: 10000 })
+  await expect(page.locator('.sample-info')).toContainText('0.500 s')
+  await expect(page.getByRole('button', { name: 'Pad 2', exact: true })).toContainText('my-snap')
+  await page.getByRole('button', { name: 'Pad 2', exact: true }).click()
+  await page.waitForFunction(
+    () => Number(document.querySelector<HTMLCanvasElement>('[aria-label="Live master level"]')?.dataset.level) > 0.0005,
+  )
+  // the kit sample is untouched on pad 1
+  await page.getByRole('button', { name: 'Pad 1', exact: true }).click()
+  await expect(page.locator('.sample-info')).not.toContainText('own sample')
+  await expect(page.locator('.sample-info')).toContainText('0.600 s')
+  await expect(page.locator('.library-item')).toHaveCount(6)
+  await page.getByRole('button', { name: 'Pad 2', exact: true }).click()
+  await page.getByRole('button', { name: 'Use kit sample' }).click()
+  await expect(page.locator('.sample-info')).not.toContainText('own sample')
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Play pattern', exact: true })).toBeEnabled()
+  await expect(page.locator('.library-item')).toHaveCount(6)
+})
+
+test('a recorded clip can follow the tempo and still exports', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add track' }).click()
+  await page.getByRole('menuitem', { name: 'Audio track' }).click()
+  await page.getByRole('button', { name: 'Arm microphone', exact: true }).click()
+  await expect(page.locator('.notice-toast')).toContainText('Input armed')
+  await page.getByRole('button', { name: 'Record pads into pattern' }).click()
+  await page.getByRole('button', { name: 'Play song', exact: true }).click()
+  await expect(page.locator('.position small')).toContainText('AUDIO RECORDING', { timeout: 10000 })
+  await page.waitForTimeout(1500)
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.locator('.clip-audio').click()
+  await expect(page.getByRole('tab', { name: 'Audio clip' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('spinbutton', { name: 'Source BPM' })).toHaveValue('92')
+  await page.getByRole('checkbox', { name: 'Follow tempo' }).check()
+  await expect(page.locator('.clip-tempo .eyebrow')).toContainText('AT SOURCE TEMPO')
+  await page.getByRole('spinbutton', { name: 'BPM', exact: true }).fill('120')
+  await expect(page.locator('.clip-tempo .eyebrow')).toContainText('STRETCHED 77%')
+  await page.getByRole('button', { name: 'Play song', exact: true }).click()
+  await page.waitForTimeout(800)
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.getByRole('button', { name: 'Export' }).click()
+  const download = page.waitForEvent('download')
+  await page.getByRole('menuitem', { name: 'Render song as WAV' }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.wav$/)
+  await expect(page.locator('.error-banner')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Detect', exact: true }).click()
+  await expect(page.locator('.notice-toast, .error-banner').first()).toBeVisible()
 })

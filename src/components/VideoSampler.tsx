@@ -3,6 +3,7 @@ import { ExternalLink, Link, Pause, Play, Radio, Scissors, Unplug } from 'lucide
 import { createVideoController, formatClock, type VideoController } from '../audio/youtube'
 import { useStudio } from '../state/store'
 import { connectTabAudio, releaseTabAudio, sampleVideoRegion, setMpc, startSampling, stopSampling } from '../state/mpc'
+import { support } from '../support'
 import type { Track } from '../state/types'
 
 /**
@@ -134,12 +135,16 @@ export function VideoSampler({ track, toNewKit }: { track: Track; toNewKit: bool
           <button
             className={`toggle ${mpc.tabAudio ? 'on' : ''}`}
             aria-pressed={mpc.tabAudio}
-            disabled={!ready}
+            disabled={!ready || !support.tabAudio}
             onClick={() => (mpc.tabAudio ? releaseTabAudio() : void connectTabAudio())}
-            title="Share this tab's audio so the video can be sampled"
+            title={
+              support.tabAudio
+                ? "Share this tab's audio so the video can be sampled"
+                : 'Sampling the video needs tab-audio sharing, which only Chrome and Edge on desktop offer. Load an audio file instead.'
+            }
           >
             {mpc.tabAudio ? <Unplug size={12} /> : <Radio size={12} />}
-            {mpc.tabAudio ? 'Tab audio on' : 'Connect tab audio'}
+            {mpc.tabAudio ? 'Tab audio on' : support.tabAudio ? 'Connect tab audio' : 'Tab audio: Chrome / Edge only'}
           </button>
         </div>
         <div className="cue-row">

@@ -2,6 +2,10 @@ import type { AudioClip, AutomationTarget, Pad, Project, Track } from '../state/
 import { automatedTargets, targetKey } from '../state/automation'
 import { chainSignature, effectChain, type EffectChain } from './effects'
 import { synthVoice } from './synth'
+import { stretchRatio } from './stretch'
+
+/** Cache key for a time-stretched copy of a buffer. */
+export const stretchKey = (bufferId: string, ratio: number) => `${bufferId}@${ratio.toFixed(4)}`
 
 export type Voice = {
   kind: 'pad' | 'note' | 'clip'
@@ -52,9 +56,13 @@ function reverseBuffer(context: BaseAudioContext, buffer: AudioBuffer) {
 export class AudioGraph {
   readonly context: BaseAudioContext
   readonly buffers: Map<string, AudioBuffer>
+  /** time-stretched copies by stretchKey, filled by the engine ahead of playback */
+  readonly stretched: Map<string, AudioBuffer>
   readonly master: GainNode
   readonly masterIn: GainNode
   readonly analyser: AnalyserNode
+  /** K-weighted (ITU-R BS.1770) tap on the master for loudness metering */
+  readonly loudness: AnalyserNode
   /** final stage; muted while sampling tab audio so pads stay out of the capture */
   readonly output: GainNode
   private masterChain: EffectChain
@@ -66,9 +74,14 @@ export class AudioGraph {
   private automated = new Set<string>()
   private scratch = new Float32Array(256)
 
-  constructor(context: BaseAudioContext, buffers: Map<string, AudioBuffer>) {
+  constructor(
+    context: BaseAudioContext,
+    buffers: Map<string, AudioBuffer>,
+    stretched = new Map<string, AudioBuffer>(),
+  ) {
     this.context = context
     this.buffers = buffers
+    this.stretched = stretched
     this.masterIn = context.createGain()
     this.master = context.createGain()
     this.analyser = context.createAnalyser()
@@ -78,6 +91,17 @@ export class AudioGraph {
     this.masterChain.output.connect(this.master)
     this.output = context.createGain()
     this.master.connect(this.analyser).connect(this.output).connect(context.destination)
+    const shelf = context.createBiquadFilter()
+    shelf.type = 'highshelf'
+    shelf.frequency.value = 1500
+    shelf.gain.value = 4
+    const highpass = context.createBiquadFilter()
+    highpass.type = 'highpass'
+    highpass.frequency.value = 38
+    highpass.Q.value = 0.5
+    this.loudness = context.createAnalyser()
+    this.loudness.fftSize = 2048
+    this.master.connect(shelf).connect(highpass).connect(this.loudness)
     this.click = context.createGain()
     this.click.gain.value = 0.5
     this.click.connect(this.master)
@@ -233,7 +257,7 @@ export class AudioGraph {
     kind: Voice['kind'],
     pitch?: number,
   ): Voice | undefined {
-    const original = this.buffers.get(track.sampleBufferId)
+    const original = this.buffers.get(pad.bufferId || track.sampleBufferId)
     const bus = this.buses.get(track.id)
     if (!original || !bus) return
     const buffer = pad.reverse ? reverseBuffer(this.context, original) : original
@@ -372,10 +396,28 @@ export class AudioGraph {
     }
   }
 
-  /** Audio clip region: `offset` seconds into the buffer, `duration` seconds of playback. */
-  playClip(track: Track, clip: AudioClip, time: number, offset: number, duration: number): Voice | undefined {
-    const buffer = this.buffers.get(clip.bufferId)
+  /** The buffer a clip plays: a time-stretched copy when it follows the tempo and one is ready. */
+  clipBuffer(clip: AudioClip, bpm: number) {
+    const original = this.buffers.get(clip.bufferId)
+    if (!original || !clip.followTempo || !clip.sourceBpm) return { buffer: original, ratio: 1 }
+    const ratio = stretchRatio(clip.sourceBpm, bpm)
+    if (Math.abs(ratio - 1) < 0.005) return { buffer: original, ratio: 1 }
+    const stretched = this.stretched.get(stretchKey(clip.bufferId, ratio))
+    return stretched ? { buffer: stretched, ratio } : { buffer: original, ratio: 1 }
+  }
+
+  /** Audio clip region: `offset` seconds into the source, `duration` seconds of playback. */
+  playClip(
+    track: Track,
+    clip: AudioClip,
+    time: number,
+    sourceOffset: number,
+    duration: number,
+    bpm = 120,
+  ): Voice | undefined {
+    const { buffer, ratio } = this.clipBuffer(clip, bpm)
     const bus = this.buses.get(track.id)
+    const offset = sourceOffset * ratio
     if (!buffer || !bus || duration <= 0 || offset >= buffer.duration) return
     const when = Math.max(time, this.context.currentTime)
     const rate = 2 ** (clip.pitchSemitones / 12)
@@ -480,6 +522,14 @@ export class AudioGraph {
     for (const [id, bus] of this.buses) result.set(id, rms(bus.analyser))
     result.set(MASTER, rms(this.analyser))
     return result
+  }
+
+  /** Mean square of the K-weighted master over the analyser window (for LUFS integration). */
+  loudnessMeanSquare(scratch: Float32Array<ArrayBuffer>) {
+    this.loudness.getFloatTimeDomainData(scratch)
+    let sum = 0
+    for (let index = 0; index < scratch.length; index++) sum += scratch[index] ** 2
+    return sum / scratch.length
   }
 
   stopTrack(trackId: string) {

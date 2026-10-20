@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { Copy, Magnet, Minus, Plus, Repeat, Scissors, Trash2, VolumeX, Volume2, X } from 'lucide-react'
-import { useStudio } from '../state/store'
+import {
+  Bookmark,
+  Copy,
+  LayoutTemplate,
+  Magnet,
+  Minus,
+  Plus,
+  Repeat,
+  Scissors,
+  Trash2,
+  VolumeX,
+  Volume2,
+  X,
+} from 'lucide-react'
+import { notify, useStudio } from '../state/store'
+import { buildSong, STRUCTURES } from '../state/songBuilder'
+import { uid } from '../state/defaults'
 import { addClip, addLane, deleteClip, play, removeLane, seek, selectClip, setLoopRegion, stop } from '../state/actions'
 import {
   arrangementEnd,
@@ -29,6 +44,26 @@ export function Timeline() {
     useStudio()
   const [drag, setDrag] = useState<Drag | null>(null)
   const [snap, setSnap] = useState(true)
+  const [builder, setBuilder] = useState(false)
+  const [structureId, setStructureId] = useState(STRUCTURES[0].id)
+  const [builderPattern, setBuilderPattern] = useState('')
+  const runBuilder = () => {
+    const structure = STRUCTURES.find(item => item.id === structureId) ?? STRUCTURES[0]
+    const source = project.patterns.find(item => item.id === (builderPattern || patternId)) ?? project.patterns[0]
+    let end = 0
+    edit(`Build song: ${structure.label}`, draft => {
+      end = buildSong(draft, structure, source.id)
+    })
+    setBuilder(false)
+    notify(
+      `Built ${structure.sections.length} sections (${Math.round(end / bar)} bars) from "${source.name}". Sections are markers on the ruler.`,
+    )
+  }
+  const addMarker = () =>
+    edit('Add marker', draft => {
+      const beat = Math.max(0, snapBeat(positionBeats >= 0 ? positionBeats : 0, bar))
+      draft.markers.push({ id: uid(), name: `Marker ${draft.markers.length + 1}`, beat })
+    })
   const scroller = useRef<HTMLDivElement>(null)
   const bar = beatsPerBar(project)
   const grid = snap ? (zoom >= 48 ? 0.25 : zoom >= 24 ? 1 : bar) : 0
@@ -121,6 +156,58 @@ export function Timeline() {
             <Magnet size={13} />
             Snap
           </button>
+          <div className="export-container">
+            <button
+              onClick={() => setBuilder(!builder)}
+              aria-expanded={builder}
+              title="Lay out a whole song from one pattern"
+            >
+              <LayoutTemplate size={13} />
+              Build song
+            </button>
+            {builder && (
+              <div className="export-menu builder-menu" role="dialog" aria-label="Song builder">
+                <label>
+                  Structure
+                  <select
+                    aria-label="Song structure"
+                    value={structureId}
+                    onChange={event => setStructureId(event.target.value)}
+                  >
+                    {STRUCTURES.map(structure => (
+                      <option key={structure.id} value={structure.id}>
+                        {structure.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  From pattern
+                  <select
+                    aria-label="Builder pattern"
+                    value={builderPattern || patternId}
+                    onChange={event => setBuilderPattern(event.target.value)}
+                  >
+                    {project.patterns.map(pattern => (
+                      <option key={pattern.id} value={pattern.id}>
+                        {pattern.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <small>
+                  Sections keep only some roles (drums, bass, chords, lead) of the pattern. Replaces the clips on the
+                  first lane; undo brings them back.
+                </small>
+                <button className="export-button" onClick={runBuilder}>
+                  Build
+                </button>
+              </div>
+            )}
+          </div>
+          <IconButton title="Add marker at the playhead" onClick={addMarker}>
+            <Bookmark size={14} />
+          </IconButton>
           <IconButton title="Zoom out timeline" onClick={() => useStudio.setState({ zoom: Math.max(6, zoom / 1.5) })}>
             <Minus size={14} />
           </IconButton>
@@ -157,6 +244,33 @@ export function Timeline() {
                   {String(index + 1).padStart(2, '0')}
                 </span>
               ))}
+              {project.markers.map(marker => (
+                <button
+                  key={marker.id}
+                  className="marker"
+                  style={{ left: x(marker.beat) }}
+                  title={`${marker.name}: click to jump, Shift-click to remove, double-click to rename`}
+                  aria-label={`Marker ${marker.name}`}
+                  onPointerDown={event => event.stopPropagation()}
+                  onClick={event => {
+                    if (event.shiftKey)
+                      edit('Remove marker', draft => {
+                        draft.markers = draft.markers.filter(item => item.id !== marker.id)
+                      })
+                    else seek(marker.beat)
+                  }}
+                  onDoubleClick={() => {
+                    const name = prompt('Marker name', marker.name)
+                    if (name !== null)
+                      edit('Rename marker', draft => {
+                        const target = draft.markers.find(item => item.id === marker.id)
+                        if (target) target.name = name.trim() || target.name
+                      })
+                  }}
+                >
+                  {marker.name}
+                </button>
+              ))}
               {project.loop.enabled && (
                 <div
                   className="loop-region"
@@ -180,7 +294,7 @@ export function Timeline() {
               )}
             </div>
           </div>
-          {project.lanes.map(lane => (
+          {project.lanes.map((lane, laneIndex) => (
             <div className={`lane ${lane.id === selectedLaneId ? 'selected' : ''}`} key={lane.id}>
               <div className="lane-label" onClick={() => useStudio.setState({ selectedLaneId: lane.id })}>
                 <input
@@ -221,6 +335,16 @@ export function Timeline() {
                 {Array.from({ length: bars }, (_, index) => (
                   <i key={index} className="bar-line" style={{ left: x(index * bar) }} />
                 ))}
+                {laneIndex === 0 && !project.clips.length && (
+                  <div className="editor-empty timeline-empty">
+                    <strong>No clips yet.</strong>
+                    <span>
+                      Double-click here to drop "
+                      {project.patterns.find(item => item.id === patternId)?.name ?? 'the pattern'}", or double-click a
+                      pattern in the sidebar. Shift-drag the ruler to loop a region.
+                    </span>
+                  </div>
+                )}
                 {project.clips
                   .filter(clip => clip.laneId === lane.id)
                   .map(clip => (

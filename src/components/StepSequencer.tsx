@@ -1,8 +1,24 @@
 import { useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Copy, Plus, Trash2, X } from 'lucide-react'
-import { useStudio } from '../state/store'
-import { createPattern, deletePattern, selectTrack, setPatternBars, stop } from '../state/actions'
+import { ChevronLeft, ChevronRight, Copy, Dices, Plus, Shuffle, Sparkles, Trash2, Wand2, X } from 'lucide-react'
+import { notify, useStudio } from '../state/store'
+import { createPattern, deletePattern, selectTrack, setPatternBars, setSwing, stop } from '../state/actions'
 import { stepsPerBar } from '../state/defaults'
+import {
+  applyGroove,
+  densityHits,
+  DRUM_PRESETS,
+  DRUM_ROLES,
+  fillHits,
+  GENRES,
+  GROOVES,
+  hitsToSteps,
+  humanize,
+  presetHits,
+  roleFromName,
+  type DrumRole,
+  type GrooveName,
+  type Hit,
+} from '../state/generate'
 import { IconButton, Range } from './Controls'
 
 export function StepSequencer() {
@@ -22,6 +38,73 @@ export function StepSequencer() {
     const track = project.tracks.find(item => item.id === row.trackId)
     return track && track.kind !== 'audio' && track.kind !== 'bus'
   })
+  // ---- generators: act on the selected track's row (its sequencer pad for kits) ----
+  const [genre, setGenre] = useState(GENRES[0])
+  const [role, setRole] = useState<DrumRole | 'auto'>('auto')
+  const [density, setDensity] = useState(0.5)
+  const [groove, setGroove] = useState<GrooveName>('mpc60')
+  const [humanizeAmount, setHumanizeAmount] = useState(0.4)
+  const [seed, setSeed] = useState(1)
+  const selected = project.tracks.find(item => item.id === selectedTrackId)
+  const targetPad =
+    selected?.kind === 'drums' ? selected.pads.find(pad => pad.id === selected.sequencerPadId) : undefined
+  const resolvedRole: DrumRole = role === 'auto' ? roleFromName(targetPad?.name ?? selected?.name) : role
+  const canGenerate = Boolean(selected && selected.kind !== 'audio' && selected.kind !== 'bus')
+  const writeHits = (label: string, hits: Hit[]) => {
+    if (!selected) return
+    edit(label, draft => {
+      const row = draft.patterns
+        .find(item => item.id === pattern.id)
+        ?.trackSteps.find(item => item.trackId === selected.id)
+      if (!row) return
+      row.steps = hitsToSteps(hits, row.steps, selected.kind === 'drums' ? selected.sequencerPadId : undefined)
+    })
+  }
+  const currentHits = (): Hit[] => {
+    const row = pattern.trackSteps.find(item => item.trackId === selected?.id)
+    const padId = selected?.kind === 'drums' ? selected.sequencerPadId : undefined
+    return (row?.steps ?? []).flatMap((step, index) =>
+      step.active && (padId === undefined || (step.padId ?? '') === padId)
+        ? [{ step: index, velocity: step.velocity }]
+        : [],
+    )
+  }
+  const generatePreset = () => {
+    writeHits(`Preset ${DRUM_PRESETS[genre].label} ${resolvedRole}`, presetHits(genre, resolvedRole, bars, perBar))
+    notify(`${DRUM_PRESETS[genre].label} ${resolvedRole} pattern on ${selected?.name}. Try Random or Fill next.`)
+  }
+  const generateRandom = () => {
+    const next = seed + 1
+    setSeed(next)
+    writeHits(`Random ${resolvedRole}`, densityHits(resolvedRole, density, bars, next, perBar))
+  }
+  const generateFill = () => {
+    const next = seed + 1
+    setSeed(next)
+    writeHits('Fill', fillHits(currentHits(), resolvedRole, bars, next, perBar))
+  }
+  const applyPatternGroove = () => {
+    edit(`Groove ${GROOVES[groove].label}`, draft => {
+      const target = draft.patterns.find(item => item.id === pattern.id)
+      if (!target) return
+      for (const row of target.trackSteps) row.steps = applyGroove(row.steps, groove, perBar)
+    })
+    setSwing(GROOVES[groove].swing)
+    notify(
+      `${GROOVES[groove].label} applied to "${pattern.name}" and the swing set to ${Math.round(GROOVES[groove].swing * 100)}%.`,
+    )
+  }
+  const applyHumanize = () => {
+    const next = seed + 1
+    setSeed(next)
+    edit('Humanize', draft => {
+      const target = draft.patterns.find(item => item.id === pattern.id)
+      if (!target) return
+      target.trackSteps.forEach((row, index) => {
+        row.steps = humanize(row.steps, humanizeAmount, next * 31 + index)
+      })
+    })
+  }
   return (
     <section className="sequencer-section">
       <div className="section-heading">
@@ -86,6 +169,81 @@ export function StepSequencer() {
             <Trash2 size={14} />
           </IconButton>
         </div>
+      </div>
+      <div className="sequencer-tools" aria-label="Pattern generators">
+        <span className="eyebrow">
+          <Sparkles size={11} /> GENERATE {selected ? `ON ${selected.name.toUpperCase()}` : ''}
+          {targetPad ? ` / ${(targetPad.name ?? 'PAD').toUpperCase()}` : ''}
+        </span>
+        <select aria-label="Preset genre" value={genre} onChange={event => setGenre(event.target.value)}>
+          {GENRES.map(item => (
+            <option key={item} value={item}>
+              {DRUM_PRESETS[item].label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Drum role"
+          value={role}
+          onChange={event => setRole(event.target.value as DrumRole | 'auto')}
+        >
+          <option value="auto">Auto ({resolvedRole})</option>
+          {DRUM_ROLES.map(item => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <button disabled={!canGenerate} onClick={generatePreset} title="Write the genre preset for this role">
+          <Wand2 size={12} />
+          Preset
+        </button>
+        <label className="density">
+          Density
+          <input
+            aria-label="Generator density"
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.05"
+            value={density}
+            onChange={event => setDensity(Number(event.target.value))}
+          />
+        </label>
+        <button disabled={!canGenerate} onClick={generateRandom} title="A new musical random pattern each press">
+          <Dices size={12} />
+          Random
+        </button>
+        <button disabled={!canGenerate} onClick={generateFill} title="Replace the end of the pattern with a fill">
+          Fill
+        </button>
+        <span className="tools-divider" />
+        <select aria-label="Groove" value={groove} onChange={event => setGroove(event.target.value as GrooveName)}>
+          {(Object.keys(GROOVES) as GrooveName[]).map(item => (
+            <option key={item} value={item}>
+              {GROOVES[item].label}
+            </option>
+          ))}
+        </select>
+        <button onClick={applyPatternGroove} title="Timing and accents for every row, plus the matching swing">
+          <Shuffle size={12} />
+          Groove
+        </button>
+        <label className="density">
+          Human
+          <input
+            aria-label="Humanize amount"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={humanizeAmount}
+            onChange={event => setHumanizeAmount(Number(event.target.value))}
+          />
+        </label>
+        <button onClick={applyHumanize} title="Random velocity and timing jitter on every row">
+          Humanize
+        </button>
       </div>
       {bars > 1 && (
         <div className="bar-pager">

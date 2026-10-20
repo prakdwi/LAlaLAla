@@ -1,5 +1,6 @@
 import { SCHEMA_VERSION, type Clip, type Project } from './types'
 import { defaultEffectParams, makeEffect, TRACK_COLORS, uid } from './defaults'
+import { isKey } from './scale'
 
 /**
  * Upgrades a stored or imported project to the current schema. Each step is pure and idempotent.
@@ -13,6 +14,8 @@ export function migrateProject(input: unknown): Project {
   if (version < 1) project = v0ToV1(project)
   if (version < 2) project = v1ToV2(project)
   if (version < 3) project = v2ToV3(project)
+  if (version < 4) project = v3ToV4(project)
+  if (version < 5) project = v4ToV5(project)
   return validate(project as unknown as Project)
 }
 
@@ -95,6 +98,16 @@ function v2ToV3(project: Record<string, unknown>) {
   return { ...project, schemaVersion: 3 }
 }
 
+/** v4: the project carries a musical key for scale lock and chord tools. */
+function v3ToV4(project: Record<string, unknown>) {
+  return { ...project, schemaVersion: 4, key: project.key ?? { root: 0, scale: 'minor' } }
+}
+
+/** v5: section markers; pads may carry their own sample; audio clips may follow the tempo. */
+function v4ToV5(project: Record<string, unknown>) {
+  return { ...project, schemaVersion: 5, markers: Array.isArray(project.markers) ? project.markers : [] }
+}
+
 function validate(project: Project): Project {
   if (!Array.isArray(project.tracks) || !Array.isArray(project.patterns))
     throw new Error('Project is missing tracks or patterns.')
@@ -107,6 +120,10 @@ function validate(project: Project): Project {
   project.masterEffects ??= []
   project.timeSignature ??= { beats: 4, unit: 4 }
   project.loop ??= { enabled: false, start: 0, end: 16 }
+  project.key = isKey(project.key) ? project.key : { root: 0, scale: 'minor' }
+  project.markers = Array.isArray(project.markers)
+    ? project.markers.filter(marker => marker && typeof marker.name === 'string' && Number.isFinite(marker.beat))
+    : []
   project.metronome ??= false
   project.countInBars ??= 0
   project.createdAt ??= Date.now()

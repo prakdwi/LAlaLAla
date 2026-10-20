@@ -4,7 +4,7 @@
  * Time units: clip positions and lengths are in beats (quarter notes). Pattern steps are
  * sixteenth notes, so a bar holds timeSignature.beats * 4 steps.
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 5
 
 export type EffectType =
   'filter' | 'delay' | 'reverb' | 'bitcrush' | 'eq' | 'compressor' | 'chorus' | 'saturation' | 'limiter'
@@ -61,6 +61,8 @@ export type Pad = {
   /** silenced in sequence playback (live hits still sound) */
   mute: boolean
   name?: string
+  /** the pad's own sample; absent = the track's sampleBufferId (one sample sliced across pads) */
+  bufferId?: string
   effects: EffectInstance[]
 }
 
@@ -147,11 +149,21 @@ export type AudioClip = ClipBase & {
   fadeIn: number
   fadeOut: number
   pitchSemitones: number
+  /** time-stretch to the project tempo from sourceBpm (pitch unchanged) */
+  followTempo?: boolean
+  /** tempo the audio was recorded or detected at */
+  sourceBpm?: number
 }
 export type AutomationClip = ClipBase & { kind: 'automation'; target: AutomationTarget; points: AutomationPoint[] }
 export type Clip = PatternClip | MidiClip | AudioClip | AutomationClip
 
 export type Lane = { id: string; name: string }
+/** Named position on the ruler: song sections from the song builder or hand-placed. */
+export type Marker = { id: string; name: string; beat: number }
+export type ScaleName =
+  'major' | 'minor' | 'dorian' | 'mixolydian' | 'pentatonicMajor' | 'pentatonicMinor' | 'blues' | 'harmonicMinor'
+/** The song's key: root pitch class 0-11 (C = 0) and scale. Used by scale lock, chord mode and generators. */
+export type MusicalKey = { root: number; scale: ScaleName }
 export type TimeSignature = { beats: number; unit: number }
 export type LoopRegion = { enabled: boolean; start: number; end: number }
 
@@ -169,6 +181,8 @@ export type Project = {
   masterEffects: EffectInstance[]
   timeSignature: TimeSignature
   loop: LoopRegion
+  key: MusicalKey
+  markers: Marker[]
   metronome: boolean
   countInBars: number
   jamSource?: { videoId: string; start: number; cueIn?: number; cueOut?: number }

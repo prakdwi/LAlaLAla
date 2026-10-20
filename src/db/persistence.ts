@@ -44,7 +44,10 @@ export const summarize = (project: Project): ProjectSummary => ({
 /** Every audio id a project references. */
 export function referencedAudio(project: Project) {
   const ids = new Set<string>()
-  for (const track of project.tracks) if (track.sampleBufferId) ids.add(track.sampleBufferId)
+  for (const track of project.tracks) {
+    if (track.sampleBufferId) ids.add(track.sampleBufferId)
+    for (const pad of track.pads) if (pad.bufferId) ids.add(pad.bufferId)
+  }
   for (const clip of project.clips) if (clip.kind === 'audio') ids.add(clip.bufferId)
   return ids
 }
